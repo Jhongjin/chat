@@ -76,6 +76,7 @@ const genderOptions: Array<{ value: Gender; label: string }> = [
 const interestFilters = ["전체", "카페", "산책", "러닝", "맛집", "책"] as const;
 const profileInterestOptions = interestFilters.filter((filter) => filter !== "전체");
 const baseDailyMessageRequests = 3;
+const blockedProfilesStorageKey = "dongneon.blockedProfiles";
 const favoriteThreadsStorageKey = "dongneon.favoriteThreadIds";
 const quietHoursStorageKey = "dongneon.quietHoursEnabled";
 const quietHoursLabel = "23:00-08:00";
@@ -101,12 +102,15 @@ export function AppShell() {
   const [deletionStatus, setDeletionStatus] = useState("요청 가능");
   const [pendingRequests, setPendingRequests] = useState<LocalMessageRequest[]>([]);
   const [blockedProfileIds, setBlockedProfileIds] = useState<string[]>([]);
+  const [blockedProfiles, setBlockedProfiles] = useState<NearbyProfile[]>([]);
+  const [blockedProfilesLoaded, setBlockedProfilesLoaded] = useState(false);
   const [favoriteThreadIds, setFavoriteThreadIds] = useState<string[]>([]);
   const [favoriteThreadIdsLoaded, setFavoriteThreadIdsLoaded] = useState(false);
   const [quietHoursEnabled, setQuietHoursEnabled] = useState(true);
   const [quietHoursLoaded, setQuietHoursLoaded] = useState(false);
   const [messageRequestTarget, setMessageRequestTarget] = useState<NearbyProfile | null>(null);
   const [messageRequestText, setMessageRequestText] = useState("");
+  const [isSafetySettingsOpen, setSafetySettingsOpen] = useState(false);
   const [safetyThread, setSafetyThread] = useState<ChatThread | null>(null);
   const [lastLocation, setLastLocation] = useState<LocationDraft | null>(null);
   const [remoteProfiles, setRemoteProfiles] = useState<NearbyProfile[] | null>(null);
@@ -166,6 +170,42 @@ export function AppShell() {
   const sentRequestCount = pendingRequests.filter((request) => request.direction === "sent").length;
   const totalMessageRequestAllowance = baseDailyMessageRequests + extraMessagePasses;
   const remainingMessageRequests = Math.max(0, totalMessageRequestAllowance - sentRequestCount);
+
+  useEffect(() => {
+    let active = true;
+
+    void AsyncStorage.getItem(blockedProfilesStorageKey).then((value) => {
+      if (!active) {
+        return;
+      }
+
+      try {
+        const parsed = value ? JSON.parse(value) : [];
+        if (Array.isArray(parsed)) {
+          const profiles = parsed.filter(isStoredNearbyProfile);
+          setBlockedProfiles(profiles);
+          setBlockedProfileIds(profiles.map((item) => item.id));
+        }
+      } catch {
+        setBlockedProfiles([]);
+        setBlockedProfileIds([]);
+      } finally {
+        setBlockedProfilesLoaded(true);
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!blockedProfilesLoaded) {
+      return;
+    }
+
+    void AsyncStorage.setItem(blockedProfilesStorageKey, JSON.stringify(blockedProfiles));
+  }, [blockedProfiles, blockedProfilesLoaded]);
 
   useEffect(() => {
     let active = true;
@@ -582,6 +622,8 @@ export function AppShell() {
     setDeletionStatus("요청됨");
     setDiscoverable(false);
     setRemoteProfiles([]);
+    setBlockedProfiles([]);
+    setBlockedProfileIds([]);
     setPendingRequests([]);
     setThreads([]);
     setFavoriteThreadIds([]);
@@ -822,6 +864,13 @@ export function AppShell() {
     }
 
     setBlockedProfileIds((current) => [...new Set([...current, thread.participant.id])]);
+    setBlockedProfiles((current) => {
+      if (current.some((profileItem) => profileItem.id === thread.participant.id)) {
+        return current;
+      }
+
+      return [thread.participant, ...current];
+    });
     setThreads((current) => current.filter((item) => item.id !== thread.id));
     setFavoriteThreadIds((current) => current.filter((id) => id !== thread.id));
     setPendingRequests((current) => current.filter((request) => request.peer.id !== thread.participant.id));
@@ -851,6 +900,12 @@ export function AppShell() {
     setFavoriteThreadIds((current) =>
       current.includes(threadId) ? current.filter((id) => id !== threadId) : [threadId, ...current]
     );
+  }
+
+  function handleUnblockProfile(profileId: string) {
+    setBlockedProfileIds((current) => current.filter((id) => id !== profileId));
+    setBlockedProfiles((current) => current.filter((profileItem) => profileItem.id !== profileId));
+    Alert.alert("차단 해제", "다시 동네 추천 목록에 표시될 수 있어요.");
   }
 
   function handleReward(perk: RewardPerk) {
@@ -994,12 +1049,14 @@ export function AppShell() {
 
         {activeTab === "profile" ? (
           <ProfileScreen
+            blockedProfileCount={blockedProfiles.length}
             deletionStatus={deletionStatus}
             favoriteThreadCount={favoriteThreadIds.filter((id) => threads.some((thread) => thread.id === id)).length}
             isDiscoverable={isDiscoverable}
             onEnablePush={handleEnablePush}
             onOpenChats={() => setActiveTab("chats")}
             onRequestAccountDeletion={handleRequestAccountDeletion}
+            onOpenSafetySettings={() => setSafetySettingsOpen(true)}
             profile={profile}
             pushStatus={pushStatus}
             quietHoursEnabled={quietHoursEnabled}
@@ -1040,6 +1097,13 @@ export function AppShell() {
           onHide={handleHideThread}
           onReport={handleReportThread}
           thread={safetyThread}
+        />
+
+        <SafetySettingsModal
+          blockedProfiles={blockedProfiles}
+          isOpen={isSafetySettingsOpen}
+          onClose={() => setSafetySettingsOpen(false)}
+          onUnblock={handleUnblockProfile}
         />
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -1636,12 +1700,14 @@ function RewardRow({
 }
 
 function ProfileScreen({
+  blockedProfileCount,
   deletionStatus,
   favoriteThreadCount,
   isDiscoverable,
   onEnablePush,
   onOpenChats,
   onOpenOnboarding,
+  onOpenSafetySettings,
   onRequestAccountDeletion,
   onToggleDiscoverable,
   onToggleQuietHours,
@@ -1651,12 +1717,14 @@ function ProfileScreen({
   radiusKm,
   selectedInterests
 }: {
+  blockedProfileCount: number;
   deletionStatus: string;
   favoriteThreadCount: number;
   isDiscoverable: boolean;
   onEnablePush: () => void | Promise<void>;
   onOpenChats: () => void;
   onOpenOnboarding: () => void;
+  onOpenSafetySettings: () => void;
   onRequestAccountDeletion: () => void;
   onToggleDiscoverable: () => void | Promise<void>;
   onToggleQuietHours: () => void;
@@ -1722,8 +1790,8 @@ function ProfileScreen({
         <SettingRow
           icon="shield-checkmark"
           label="신고/차단"
-          onPress={() => Alert.alert("안전 설정", "차단 목록과 신고 내역 화면으로 연결될 항목입니다.")}
-          value="항상 사용 가능"
+          onPress={onOpenSafetySettings}
+          value={blockedProfileCount ? `${blockedProfileCount}명 차단` : "항상 사용 가능"}
         />
         <SettingRow
           danger
@@ -2077,6 +2145,66 @@ function SafetyActionModal({
   );
 }
 
+function SafetySettingsModal({
+  blockedProfiles,
+  isOpen,
+  onClose,
+  onUnblock
+}: {
+  blockedProfiles: NearbyProfile[];
+  isOpen: boolean;
+  onClose: () => void;
+  onUnblock: (profileId: string) => void;
+}) {
+  return (
+    <Modal animationType="fade" onRequestClose={onClose} transparent visible={isOpen}>
+      <View style={styles.centerModalBackdrop}>
+        <View style={styles.actionSheet}>
+          <View style={styles.actionHeader}>
+            <MascotMark size="sm" />
+            <View style={styles.fill}>
+              <Text style={styles.kicker}>안전 설정</Text>
+              <Text style={styles.actionTitle}>차단 목록</Text>
+            </View>
+          </View>
+
+          {blockedProfiles.length ? (
+            blockedProfiles.map((profileItem) => (
+              <View key={profileItem.id} style={styles.blockedProfileRow}>
+                <Avatar color={profileItem.avatarColor} label={profileItem.name} size={38} />
+                <View style={styles.fill}>
+                  <Text style={styles.panelTitle}>{profileItem.name}</Text>
+                  <Text style={styles.panelCaption}>
+                    {profileItem.neighborhood} · {formatDistance(profileItem.distanceKm)}
+                  </Text>
+                </View>
+                <Pressable
+                  accessibilityLabel={`${profileItem.name}님 차단 해제`}
+                  accessibilityRole="button"
+                  onPress={() => onUnblock(profileItem.id)}
+                  style={styles.pendingActionGhost}
+                >
+                  <Ionicons color={colors.teal} name="return-up-back" size={18} />
+                </Pressable>
+              </View>
+            ))
+          ) : (
+            <View style={styles.safetyEmptyState}>
+              <Ionicons color={colors.teal} name="shield-checkmark" size={22} />
+              <Text style={styles.panelTitle}>차단한 사람이 없어요</Text>
+              <Text style={styles.panelCaption}>불편한 대화는 언제든 신고하거나 추천에서 숨길 수 있습니다.</Text>
+            </View>
+          )}
+
+          <Pressable accessibilityRole="button" onPress={onClose} style={styles.secondaryButton}>
+            <Text style={styles.secondaryButtonText}>닫기</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 function BottomTabs({
   activeTab,
   onChangeTab,
@@ -2166,6 +2294,30 @@ function Avatar({ color, label, size = 48 }: { color: string; label: string; siz
 
 function isUuid(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function isStoredNearbyProfile(value: unknown): value is NearbyProfile {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const profileItem = value as Partial<NearbyProfile>;
+
+  return (
+    typeof profileItem.id === "string" &&
+    typeof profileItem.name === "string" &&
+    typeof profileItem.age === "number" &&
+    typeof profileItem.gender === "string" &&
+    genderOptions.some((option) => option.value === profileItem.gender) &&
+    typeof profileItem.distanceKm === "number" &&
+    typeof profileItem.neighborhood === "string" &&
+    typeof profileItem.intro === "string" &&
+    Array.isArray(profileItem.tags) &&
+    typeof profileItem.avatarColor === "string" &&
+    typeof profileItem.lastActiveMinutes === "number" &&
+    typeof profileItem.responseRate === "number" &&
+    typeof profileItem.verified === "boolean"
+  );
 }
 
 function totalUnread(threads: ChatThread[]) {
@@ -2265,6 +2417,18 @@ const styles = StyleSheet.create({
     fontSize: type.caption,
     fontWeight: "700",
     lineHeight: 18
+  },
+  blockedProfileRow: {
+    alignItems: "center",
+    backgroundColor: colors.white,
+    borderColor: colors.line,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.md,
+    minHeight: 58,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm
   },
   actionHeader: {
     alignItems: "center",
@@ -3002,6 +3166,15 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     flexDirection: "row",
     gap: spacing.md,
+    padding: spacing.lg
+  },
+  safetyEmptyState: {
+    alignItems: "center",
+    backgroundColor: colors.white,
+    borderColor: colors.line,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    gap: spacing.sm,
     padding: spacing.lg
   },
   screenScroll: {
