@@ -46,6 +46,7 @@ import {
 } from "./services/chatBackend";
 import { requestNeighborhoodLocation } from "./services/location";
 import { requestPushRegistration } from "./services/notifications";
+import { exportUserData } from "./services/dataExport";
 import { showRewardedAd } from "./services/rewardedAds";
 import { colors, radius, shadow, spacing, type } from "./theme";
 import type { ChatMessage, ChatThread, Gender, NearbyProfile, RewardPerk } from "./types";
@@ -908,6 +909,47 @@ export function AppShell() {
     Alert.alert("차단 해제", "다시 동네 추천 목록에 표시될 수 있어요.");
   }
 
+  async function handleExportData() {
+    const exported = await exportUserData({
+      blockedProfiles: blockedProfiles.map((profileItem) => ({
+        id: profileItem.id,
+        name: profileItem.name,
+        neighborhood: profileItem.neighborhood
+      })),
+      conversations: threads.map((thread) => ({
+        id: thread.id,
+        messages: thread.messages,
+        participantName: thread.participant.name,
+        unreadCount: thread.unreadCount
+      })),
+      deletionStatus,
+      discovery: {
+        discoverable: isDiscoverable,
+        radiusKm,
+        selectedInterests
+      },
+      favoriteThreadIds,
+      profile: {
+        age: profile.age,
+        gender: profile.gender,
+        locationLabel: profile.locationLabel,
+        name: profile.name,
+        permissionGranted: profile.permissionGranted
+      },
+      rewards: {
+        credits: rewardCredits,
+        earnedToday,
+        extraMessagePasses
+      },
+      settings: {
+        pushStatus,
+        quietHoursEnabled
+      }
+    });
+
+    Alert.alert(exported.ok ? "데이터 내보내기" : "내보내기 실패", exported.ok ? exported.message : exported.error);
+  }
+
   function handleReward(perk: RewardPerk) {
     if (rewardCredits < perk.cost) {
       Alert.alert("광고 시청 필요", "리워드 광고를 보고 크레딧을 충전할 수 있습니다.");
@@ -1054,6 +1096,7 @@ export function AppShell() {
             favoriteThreadCount={favoriteThreadIds.filter((id) => threads.some((thread) => thread.id === id)).length}
             isDiscoverable={isDiscoverable}
             onEnablePush={handleEnablePush}
+            onExportData={handleExportData}
             onOpenChats={() => setActiveTab("chats")}
             onRequestAccountDeletion={handleRequestAccountDeletion}
             onOpenSafetySettings={() => setSafetySettingsOpen(true)}
@@ -1705,6 +1748,7 @@ function ProfileScreen({
   favoriteThreadCount,
   isDiscoverable,
   onEnablePush,
+  onExportData,
   onOpenChats,
   onOpenOnboarding,
   onOpenSafetySettings,
@@ -1722,6 +1766,7 @@ function ProfileScreen({
   favoriteThreadCount: number;
   isDiscoverable: boolean;
   onEnablePush: () => void | Promise<void>;
+  onExportData: () => void | Promise<void>;
   onOpenChats: () => void;
   onOpenOnboarding: () => void;
   onOpenSafetySettings: () => void;
@@ -1787,6 +1832,7 @@ function ProfileScreen({
           onPress={() => Alert.alert("정확 위치 비공개", "상대에게는 대략 거리와 동네 범위만 표시됩니다.")}
           value="비공개"
         />
+        <SettingRow icon="download" label="데이터 내보내기" onPress={onExportData} value="JSON" />
         <SettingRow
           icon="shield-checkmark"
           label="신고/차단"
