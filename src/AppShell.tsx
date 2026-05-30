@@ -1,3 +1,4 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 import type { ComponentProps } from "react";
 import { useEffect, useMemo, useState } from "react";
@@ -75,6 +76,7 @@ const genderOptions: Array<{ value: Gender; label: string }> = [
 const interestFilters = ["전체", "카페", "산책", "러닝", "맛집", "책"] as const;
 const profileInterestOptions = interestFilters.filter((filter) => filter !== "전체");
 const baseDailyMessageRequests = 3;
+const favoriteThreadsStorageKey = "dongneon.favoriteThreadIds";
 
 export function AppShell() {
   const [activeTab, setActiveTab] = useState<TabKey>("discover");
@@ -97,6 +99,8 @@ export function AppShell() {
   const [deletionStatus, setDeletionStatus] = useState("요청 가능");
   const [pendingRequests, setPendingRequests] = useState<LocalMessageRequest[]>([]);
   const [blockedProfileIds, setBlockedProfileIds] = useState<string[]>([]);
+  const [favoriteThreadIds, setFavoriteThreadIds] = useState<string[]>([]);
+  const [favoriteThreadIdsLoaded, setFavoriteThreadIdsLoaded] = useState(false);
   const [messageRequestTarget, setMessageRequestTarget] = useState<NearbyProfile | null>(null);
   const [messageRequestText, setMessageRequestText] = useState("");
   const [safetyThread, setSafetyThread] = useState<ChatThread | null>(null);
@@ -146,9 +150,51 @@ export function AppShell() {
   );
 
   const selectedThread = threads.find((thread) => thread.id === selectedThreadId) ?? threads[0];
+  const orderedThreads = useMemo(() => {
+    const originalOrder = new Map(threads.map((thread, index) => [thread.id, index]));
+
+    return [...threads].sort((left, right) => {
+      const favoriteGap = Number(favoriteThreadIds.includes(right.id)) - Number(favoriteThreadIds.includes(left.id));
+
+      return favoriteGap || (originalOrder.get(left.id) ?? 0) - (originalOrder.get(right.id) ?? 0);
+    });
+  }, [favoriteThreadIds, threads]);
   const sentRequestCount = pendingRequests.filter((request) => request.direction === "sent").length;
   const totalMessageRequestAllowance = baseDailyMessageRequests + extraMessagePasses;
   const remainingMessageRequests = Math.max(0, totalMessageRequestAllowance - sentRequestCount);
+
+  useEffect(() => {
+    let active = true;
+
+    void AsyncStorage.getItem(favoriteThreadsStorageKey).then((value) => {
+      if (!active) {
+        return;
+      }
+
+      try {
+        const parsed = value ? JSON.parse(value) : [];
+        if (Array.isArray(parsed)) {
+          setFavoriteThreadIds(parsed.filter((item): item is string => typeof item === "string"));
+        }
+      } catch {
+        setFavoriteThreadIds([]);
+      } finally {
+        setFavoriteThreadIdsLoaded(true);
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!favoriteThreadIdsLoaded) {
+      return;
+    }
+
+    void AsyncStorage.setItem(favoriteThreadsStorageKey, JSON.stringify(favoriteThreadIds));
+  }, [favoriteThreadIds, favoriteThreadIdsLoaded]);
 
   useEffect(() => {
     if (isOnboarded && canUseBackend()) {
@@ -502,6 +548,7 @@ export function AppShell() {
     setRemoteProfiles([]);
     setPendingRequests([]);
     setThreads([]);
+    setFavoriteThreadIds([]);
     setSelectedThreadId(undefined);
     setOnboarded(false);
     setOnboardingOpen(false);
@@ -720,6 +767,7 @@ export function AppShell() {
 
   function handleHideThread(threadId: string) {
     setThreads((current) => current.filter((thread) => thread.id !== threadId));
+    setFavoriteThreadIds((current) => current.filter((id) => id !== threadId));
     setSelectedThreadId(undefined);
     setSafetyThread(null);
   }
@@ -739,6 +787,7 @@ export function AppShell() {
 
     setBlockedProfileIds((current) => [...new Set([...current, thread.participant.id])]);
     setThreads((current) => current.filter((item) => item.id !== thread.id));
+    setFavoriteThreadIds((current) => current.filter((id) => id !== thread.id));
     setPendingRequests((current) => current.filter((request) => request.peer.id !== thread.participant.id));
     setSelectedThreadId(undefined);
     setSafetyThread(null);
@@ -760,6 +809,12 @@ export function AppShell() {
 
     setSafetyThread(null);
     Alert.alert("신고가 접수됐어요", `${reason} 사유로 운영 검토 큐에 등록됩니다.`);
+  }
+
+  function handleToggleFavoriteThread(threadId: string) {
+    setFavoriteThreadIds((current) =>
+      current.includes(threadId) ? current.filter((id) => id !== threadId) : [threadId, ...current]
+    );
   }
 
   function handleReward(perk: RewardPerk) {
@@ -873,6 +928,7 @@ export function AppShell() {
           <ChatsScreen
             backendNotice={backendNotice}
             composerText={composerText}
+            favoriteThreadIds={favoriteThreadIds}
             isBackendLoading={isBackendLoading}
             onChangeComposerText={setComposerText}
             onAcceptRequest={handleAcceptRequest}
@@ -882,8 +938,9 @@ export function AppShell() {
             onOpenSafety={setSafetyThread}
             onOpenOnboarding={() => setOnboardingOpen(true)}
             onRefreshChats={syncChatState}
+            onToggleFavoriteThread={handleToggleFavoriteThread}
             selectedThread={selectedThread}
-            threads={threads}
+            threads={orderedThreads}
             pendingRequests={pendingRequests}
           />
         ) : null}
@@ -902,8 +959,10 @@ export function AppShell() {
         {activeTab === "profile" ? (
           <ProfileScreen
             deletionStatus={deletionStatus}
+            favoriteThreadCount={favoriteThreadIds.filter((id) => threads.some((thread) => thread.id === id)).length}
             isDiscoverable={isDiscoverable}
             onEnablePush={handleEnablePush}
+            onOpenChats={() => setActiveTab("chats")}
             onRequestAccountDeletion={handleRequestAccountDeletion}
             profile={profile}
             pushStatus={pushStatus}
@@ -1196,6 +1255,7 @@ function NeighborRow({
 function ChatsScreen({
   backendNotice,
   composerText,
+  favoriteThreadIds,
   isBackendLoading,
   onAcceptRequest,
   onChangeComposerText,
@@ -1205,12 +1265,14 @@ function ChatsScreen({
   onRefreshChats,
   onSelectThread,
   onSendMessage,
+  onToggleFavoriteThread,
   pendingRequests,
   selectedThread,
   threads
 }: {
   backendNotice: string;
   composerText: string;
+  favoriteThreadIds: string[];
   isBackendLoading: boolean;
   onAcceptRequest: (request: LocalMessageRequest) => void | Promise<void>;
   onChangeComposerText: (value: string) => void;
@@ -1220,6 +1282,7 @@ function ChatsScreen({
   onRefreshChats: () => void | Promise<void>;
   onSelectThread: (threadId: string) => void;
   onSendMessage: (thread: ChatThread) => void | Promise<void>;
+  onToggleFavoriteThread: (threadId: string) => void;
   pendingRequests: LocalMessageRequest[];
   selectedThread?: ChatThread;
   threads: ChatThread[];
@@ -1265,6 +1328,9 @@ function ChatsScreen({
               >
                 <Avatar color={item.participant.avatarColor} label={item.participant.name} size={34} />
                 <Text style={styles.threadChipText}>{item.participant.name}</Text>
+                {favoriteThreadIds.includes(item.id) ? (
+                  <Ionicons color={colors.yellow} name="star" size={13} />
+                ) : null}
                 {item.unreadCount ? <View style={styles.unreadDot} /> : null}
               </Pressable>
             )}
@@ -1296,6 +1362,20 @@ function ChatsScreen({
                 {selectedThread.participant.neighborhood} · {formatDistance(selectedThread.participant.distanceKm)}
               </Text>
             </View>
+            <Pressable
+              accessibilityLabel={`${selectedThread.participant.name}님과의 대화 즐겨찾기 ${
+                favoriteThreadIds.includes(selectedThread.id) ? "해제" : "추가"
+              }`}
+              accessibilityRole="button"
+              onPress={() => onToggleFavoriteThread(selectedThread.id)}
+              style={styles.smallIconButton}
+            >
+              <Ionicons
+                color={favoriteThreadIds.includes(selectedThread.id) ? colors.yellow : colors.mutedInk}
+                name={favoriteThreadIds.includes(selectedThread.id) ? "star" : "star-outline"}
+                size={18}
+              />
+            </Pressable>
             <Pressable
               accessibilityLabel="신고 또는 차단 메뉴 열기"
               accessibilityRole="button"
@@ -1519,8 +1599,10 @@ function RewardRow({
 
 function ProfileScreen({
   deletionStatus,
+  favoriteThreadCount,
   isDiscoverable,
   onEnablePush,
+  onOpenChats,
   onOpenOnboarding,
   onRequestAccountDeletion,
   onToggleDiscoverable,
@@ -1530,8 +1612,10 @@ function ProfileScreen({
   selectedInterests
 }: {
   deletionStatus: string;
+  favoriteThreadCount: number;
   isDiscoverable: boolean;
   onEnablePush: () => void | Promise<void>;
+  onOpenChats: () => void;
   onOpenOnboarding: () => void;
   onRequestAccountDeletion: () => void;
   onToggleDiscoverable: () => void | Promise<void>;
@@ -1574,6 +1658,12 @@ function ProfileScreen({
           value={selectedInterests.length ? selectedInterests.join(", ") : "미설정"}
         />
         <SettingRow icon="notifications" label="쪽지 알림" onPress={onEnablePush} value={pushStatus} />
+        <SettingRow
+          icon="star"
+          label="즐겨찾기 대화"
+          onPress={onOpenChats}
+          value={favoriteThreadCount ? `${favoriteThreadCount}개 고정` : "없음"}
+        />
         <SettingRow icon="navigate" label="노출 반경" onPress={onOpenOnboarding} value={`${radiusKm}km 이내`} />
         <SettingRow
           icon="eye-off"
