@@ -1,0 +1,46 @@
+{
+  "expo": {
+    "name": "DongneOn",
+    "slug": "dongne-on",
+    "scheme": "dongneon",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.jhongjin.dongneon",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "5km 이내 동네 친구를 추천하기 위해 현재 위치를 사용합니다. 정확한 위치는 다른 사용자에게 공개하지 않습니다."
+      }
+    },
+    "android": {
+      "package": "com.jhongjin.dongneon",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "POST_NOTIFICATIONS"
+      ],
+      "adaptiveIcon": {
+        "backgroundColor": "#F8F4EC"
+      }
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "5km 이내 동네 친구를 추천하기 위해 현재 위치를 사용합니다. 정확한 위치는 다른 사용자에게 공개하지 않습니다."
+        }
+      ],
+      "expo-notifications",
+      "expo-font"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "replace-with-eas-project-id"
+      }
+    }
+  }
+}

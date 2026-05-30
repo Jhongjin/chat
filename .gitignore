@@ -1,0 +1,13 @@
+.expo/
+.expo-shared/
+.expo-logs/
+node_modules/
+.tools/
+dist/
+web-build/
+*.log
+.env
+.env.*
+!.env.example
+ios/
+android/

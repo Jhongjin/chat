@@ -1,0 +1,3109 @@
+import { Ionicons } from "@expo/vector-icons";
+import type { ComponentProps } from "react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View
+} from "react-native";
+import { MascotMark } from "./components/MascotMark";
+import { initialThreads, nearbyProfiles, rewardPerks } from "./data/mock";
+import {
+  acceptMessageRequest,
+  blockProfile,
+  canUseBackend,
+  claimAdReward,
+  createMessageRequest,
+  declineMessageRequest,
+  fetchConversations,
+  fetchMessageRequests,
+  fetchNearbyProfiles,
+  fetchPreferenceState,
+  fetchRewardSummary,
+  markConversationRead,
+  registerPushToken,
+  reportProfile,
+  requestAccountDeletion,
+  saveDiscoveryPreferences,
+  saveProfile,
+  saveProfileInterests,
+  sendConversationMessage,
+  subscribeToConversationMessages,
+  updateMyLocation,
+  type LocationDraft,
+  type MessageRequestItem
+} from "./services/chatBackend";
+import { requestNeighborhoodLocation } from "./services/location";
+import { requestPushRegistration } from "./services/notifications";
+import { colors, radius, shadow, spacing, type } from "./theme";
+import type { ChatMessage, ChatThread, Gender, NearbyProfile, RewardPerk } from "./types";
+import { clampRadius, formatDistance, sortByDistance } from "./utils/distance";
+
+type TabKey = "discover" | "chats" | "rewards" | "profile";
+type IconName = ComponentProps<typeof Ionicons>["name"];
+type InterestFilter = (typeof interestFilters)[number];
+
+type LocalMessageRequest = MessageRequestItem;
+
+type OnboardingProfile = {
+  name: string;
+  age: string;
+  gender: Gender;
+  locationLabel: string;
+  permissionGranted: boolean;
+  policyAccepted: boolean;
+};
+
+const genderOptions: Array<{ value: Gender; label: string }> = [
+  { value: "female", label: "여성" },
+  { value: "male", label: "남성" },
+  { value: "nonbinary", label: "논바이너리" },
+  { value: "private", label: "비공개" }
+];
+
+const interestFilters = ["전체", "카페", "산책", "러닝", "맛집", "책"] as const;
+const profileInterestOptions = interestFilters.filter((filter) => filter !== "전체");
+const baseDailyMessageRequests = 3;
+
+export function AppShell() {
+  const [activeTab, setActiveTab] = useState<TabKey>("discover");
+  const [radiusKm, setRadiusKm] = useState(5);
+  const [threads, setThreads] = useState(initialThreads);
+  const [selectedThreadId, setSelectedThreadId] = useState<string | undefined>(initialThreads[0]?.id);
+  const [composerText, setComposerText] = useState("");
+  const [isOnboardingOpen, setOnboardingOpen] = useState(true);
+  const [isOnboarded, setOnboarded] = useState(false);
+  const [isLocating, setLocating] = useState(false);
+  const [isBackendLoading, setBackendLoading] = useState(false);
+  const [isAdLoading, setAdLoading] = useState(false);
+  const [rewardCredits, setRewardCredits] = useState(2);
+  const [earnedToday, setEarnedToday] = useState(0);
+  const [extraMessagePasses, setExtraMessagePasses] = useState(0);
+  const [selectedInterest, setSelectedInterest] = useState<InterestFilter>("전체");
+  const [selectedInterests, setSelectedInterests] = useState<string[]>(["카페", "산책"]);
+  const [isDiscoverable, setDiscoverable] = useState(true);
+  const [pushStatus, setPushStatus] = useState("알림 준비 전");
+  const [deletionStatus, setDeletionStatus] = useState("요청 가능");
+  const [pendingRequests, setPendingRequests] = useState<LocalMessageRequest[]>([]);
+  const [blockedProfileIds, setBlockedProfileIds] = useState<string[]>([]);
+  const [messageRequestTarget, setMessageRequestTarget] = useState<NearbyProfile | null>(null);
+  const [messageRequestText, setMessageRequestText] = useState("");
+  const [safetyThread, setSafetyThread] = useState<ChatThread | null>(null);
+  const [lastLocation, setLastLocation] = useState<LocationDraft | null>(null);
+  const [remoteProfiles, setRemoteProfiles] = useState<NearbyProfile[] | null>(null);
+  const [backendNotice, setBackendNotice] = useState(
+    canUseBackend() ? "Supabase 연결 준비됨" : "Supabase anon key 입력 전 - 데모 모드"
+  );
+  const [profile, setProfile] = useState<OnboardingProfile>({
+    name: "",
+    age: "",
+    gender: "private",
+    locationLabel: "위치 확인 전",
+    permissionGranted: false,
+    policyAccepted: false
+  });
+
+  const visibleProfiles = useMemo(
+    () => {
+      if (!isOnboarded || !profile.permissionGranted) {
+        return [];
+      }
+
+      return sortByDistance(remoteProfiles ?? nearbyProfiles)
+        .filter(
+          (item) =>
+            item.distanceKm <= radiusKm &&
+            !blockedProfileIds.includes(item.id) &&
+            (selectedInterest === "전체" || item.tags.includes(selectedInterest))
+        )
+        .sort((left, right) => {
+          const scoreGap =
+            calculateMatchScore(right, selectedInterests) - calculateMatchScore(left, selectedInterests);
+
+          return scoreGap || left.distanceKm - right.distanceKm;
+        });
+    },
+    [
+      blockedProfileIds,
+      isOnboarded,
+      profile.permissionGranted,
+      radiusKm,
+      remoteProfiles,
+      selectedInterest,
+      selectedInterests
+    ]
+  );
+
+  const selectedThread = threads.find((thread) => thread.id === selectedThreadId) ?? threads[0];
+  const sentRequestCount = pendingRequests.filter((request) => request.direction === "sent").length;
+  const totalMessageRequestAllowance = baseDailyMessageRequests + extraMessagePasses;
+  const remainingMessageRequests = Math.max(0, totalMessageRequestAllowance - sentRequestCount);
+
+  useEffect(() => {
+    if (isOnboarded && canUseBackend()) {
+      void syncChatState();
+      void syncPreferenceState();
+      void syncRewardSummary();
+    }
+  }, [isOnboarded]);
+
+  useEffect(() => {
+    if (!selectedThread?.id || !isUuid(selectedThread.id) || !canUseBackend()) {
+      return undefined;
+    }
+
+    let cleanup: (() => void) | undefined;
+    let active = true;
+
+    void subscribeToConversationMessages(selectedThread.id, (message) => {
+      appendMessageToThread(selectedThread.id, message);
+    }).then((result) => {
+      if (!active) {
+        if (result.ok) {
+          result.data();
+        }
+        return;
+      }
+
+      if (result.ok) {
+        cleanup = result.data;
+      } else {
+        setBackendNotice(`Supabase 실시간 연결 필요: ${result.error}`);
+      }
+    });
+
+    void markConversationRead(selectedThread.id);
+
+    return () => {
+      active = false;
+      cleanup?.();
+    };
+  }, [selectedThread?.id]);
+
+  async function syncNearbyProfiles(nextRadiusKm = radiusKm) {
+    if (!canUseBackend()) {
+      return;
+    }
+
+    setBackendLoading(true);
+    const result = await fetchNearbyProfiles(nextRadiusKm);
+
+    if (result.ok) {
+      setRemoteProfiles(result.data);
+      setBackendNotice(result.data.length ? "Supabase 근처 친구 동기화 완료" : "Supabase 연결됨 - 아직 근처 친구가 없어요");
+    } else {
+      setBackendNotice(`Supabase 동기화 필요: ${result.error}`);
+    }
+
+    setBackendLoading(false);
+  }
+
+  async function syncChatState() {
+    if (!canUseBackend()) {
+      return;
+    }
+
+    setBackendLoading(true);
+    const [requests, conversations] = await Promise.all([fetchMessageRequests(), fetchConversations()]);
+
+    if (requests.ok) {
+      setPendingRequests(requests.data);
+    } else {
+      setBackendNotice(`Supabase 요청함 동기화 필요: ${requests.error}`);
+    }
+
+    if (conversations.ok) {
+      setThreads(conversations.data);
+      setSelectedThreadId((current) =>
+        conversations.data.some((thread) => thread.id === current) ? current : conversations.data[0]?.id
+      );
+    } else {
+      setBackendNotice(`Supabase 대화 동기화 필요: ${conversations.error}`);
+    }
+
+    if (requests.ok && conversations.ok) {
+      setBackendNotice("Supabase 대화/요청함 동기화 완료");
+    }
+
+    setBackendLoading(false);
+  }
+
+  async function syncPreferenceState() {
+    if (!canUseBackend()) {
+      return;
+    }
+
+    const preferences = await fetchPreferenceState();
+
+    if (!preferences.ok) {
+      setBackendNotice(`Supabase 설정 동기화 필요: ${preferences.error}`);
+      return;
+    }
+
+    setRadiusKm(clampRadius(preferences.data.radiusKm));
+    setDiscoverable(preferences.data.visible);
+    if (preferences.data.interests.length > 0) {
+      setSelectedInterests(preferences.data.interests);
+    }
+  }
+
+  async function syncRewardSummary() {
+    if (!canUseBackend()) {
+      return;
+    }
+
+    const summary = await fetchRewardSummary();
+
+    if (!summary.ok) {
+      setBackendNotice(`Supabase 리워드 동기화 필요: ${summary.error}`);
+      return;
+    }
+
+    setEarnedToday(summary.data.earnedToday);
+  }
+
+  async function handleLocate() {
+    setLocating(true);
+    const location = await requestNeighborhoodLocation();
+    const nextLocation = location.permissionGranted
+      ? {
+          accuracyM: location.accuracyM,
+          latitude: location.latitude,
+          longitude: location.longitude
+        }
+      : null;
+
+    setProfile((current) => ({
+      ...current,
+      locationLabel: location.label,
+      permissionGranted: location.permissionGranted
+    }));
+    setLastLocation(nextLocation);
+
+    if (nextLocation && isOnboarded && canUseBackend()) {
+      const updated = await updateMyLocation(nextLocation);
+
+      if (!updated.ok) {
+        setBackendNotice(`위치 동기화 필요: ${updated.error}`);
+      } else {
+        await syncNearbyProfiles();
+      }
+    }
+
+    setLocating(false);
+  }
+
+  function handleChangeTab(tab: TabKey) {
+    setActiveTab(tab);
+
+    if (tab === "chats" && isOnboarded && canUseBackend()) {
+      void syncChatState();
+    }
+  }
+
+  async function handleCompleteOnboarding() {
+    const ageNumber = Number(profile.age);
+
+    if (!profile.name.trim() || Number.isNaN(ageNumber) || ageNumber < 18) {
+      Alert.alert("프로필 확인", "이름과 만 18세 이상의 나이를 입력해 주세요.");
+      return;
+    }
+
+    if (!profile.policyAccepted) {
+      Alert.alert("동의가 필요해요", "만 18세 이상 확인과 서비스 정책 동의가 필요합니다.");
+      return;
+    }
+
+    if (!profile.permissionGranted) {
+      setProfile((current) => ({
+        ...current,
+        locationLabel: current.locationLabel === "위치 확인 전" ? "동네 선택 전" : current.locationLabel
+      }));
+      Alert.alert("위치 없이 시작", "위치 권한을 허용하면 5km 이내 추천이 더 정확해집니다.");
+    }
+
+    if (canUseBackend()) {
+      setBackendLoading(true);
+      const saved = await saveProfile({
+        age: ageNumber,
+        gender: profile.gender,
+        name: profile.name
+      });
+
+      if (!saved.ok) {
+        setBackendNotice(`Supabase 프로필 저장 필요: ${saved.error}`);
+      } else {
+        const [interestsSaved, preferencesSaved] = await Promise.all([
+          saveProfileInterests(selectedInterests),
+          saveDiscoveryPreferences({ radiusKm, visible: isDiscoverable })
+        ]);
+
+        if (!interestsSaved.ok) {
+          setBackendNotice(`Supabase 관심사 저장 필요: ${interestsSaved.error}`);
+        } else if (!preferencesSaved.ok) {
+          setBackendNotice(`Supabase 노출 설정 저장 필요: ${preferencesSaved.error}`);
+        } else if (lastLocation) {
+          const updated = await updateMyLocation(lastLocation);
+
+          if (!updated.ok) {
+            setBackendNotice(`Supabase 위치 저장 필요: ${updated.error}`);
+          } else {
+            await syncNearbyProfiles();
+          }
+        } else {
+          setBackendNotice("Supabase 프로필 저장 완료 - 위치 허용 후 추천을 볼 수 있어요");
+        }
+      }
+
+      setBackendLoading(false);
+    }
+
+    setOnboarded(true);
+    setOnboardingOpen(false);
+  }
+
+  function handleCloseOnboarding() {
+    if (isOnboarded) {
+      setOnboardingOpen(false);
+      return;
+    }
+
+    Alert.alert("프로필을 먼저 완성해 주세요", "안전한 동네 추천을 위해 최소 프로필과 동의가 필요합니다.");
+  }
+
+  function handleChangeRadius(nextRadiusKm: number) {
+    const clampedRadius = clampRadius(nextRadiusKm);
+
+    setRadiusKm(clampedRadius);
+
+    if (isOnboarded && canUseBackend()) {
+      void saveDiscoveryPreferences({ radiusKm: clampedRadius, visible: isDiscoverable }).then((result) => {
+        if (!result.ok) {
+          setBackendNotice(`Supabase 반경 저장 필요: ${result.error}`);
+        }
+      });
+    }
+
+    if (profile.permissionGranted) {
+      void syncNearbyProfiles(clampedRadius);
+    }
+  }
+
+  function handleToggleInterest(interest: string) {
+    setSelectedInterests((current) => {
+      if (current.includes(interest)) {
+        return current.filter((item) => item !== interest);
+      }
+
+      return [...current, interest].slice(-5);
+    });
+  }
+
+  async function handleToggleDiscoverable() {
+    const nextVisible = !isDiscoverable;
+    setDiscoverable(nextVisible);
+
+    if (!canUseBackend()) {
+      return;
+    }
+
+    const saved = await saveDiscoveryPreferences({ radiusKm, visible: nextVisible });
+
+    if (!saved.ok) {
+      setDiscoverable(!nextVisible);
+      setBackendNotice(`Supabase 노출 설정 저장 필요: ${saved.error}`);
+      Alert.alert("노출 설정 저장 실패", saved.error);
+    } else {
+      setBackendNotice(nextVisible ? "동네 추천 노출이 켜졌어요" : "동네 추천 노출을 잠시 껐어요");
+    }
+  }
+
+  async function handleEnablePush() {
+    setPushStatus("알림 권한 확인 중");
+    const token = await requestPushRegistration();
+
+    if (!token.ok) {
+      setPushStatus("알림 등록 필요");
+      Alert.alert("알림 등록 실패", token.error);
+      return;
+    }
+
+    if (!canUseBackend()) {
+      setPushStatus("기기 알림 준비 완료");
+      return;
+    }
+
+    const saved = await registerPushToken({
+      platform: token.platform,
+      token: token.token
+    });
+
+    if (!saved.ok) {
+      setPushStatus("알림 토큰 저장 필요");
+      Alert.alert("알림 저장 실패", saved.error);
+      return;
+    }
+
+    setPushStatus("쪽지 알림 준비 완료");
+  }
+
+  function handleRequestAccountDeletion() {
+    if (deletionStatus === "요청됨") {
+      Alert.alert("계정 삭제 요청됨", "이미 삭제 요청이 접수됐어요. 운영 검수 후 보관 정책에 맞춰 처리됩니다.");
+      return;
+    }
+
+    Alert.alert(
+      "계정 삭제 요청",
+      "프로필 노출, 위치 추천, 푸시 토큰을 중지하고 삭제 요청 큐에 등록합니다. 대화 기록은 법적 보관 정책에 따라 처리될 수 있어요.",
+      [
+        { text: "취소", style: "cancel" },
+        {
+          text: "삭제 요청",
+          style: "destructive",
+          onPress: () => {
+            void submitAccountDeletion();
+          }
+        }
+      ]
+    );
+  }
+
+  async function submitAccountDeletion() {
+    if (!canUseBackend()) {
+      setDeletionStatus("데모 요청됨");
+      Alert.alert("데모 모드", "Supabase 연결 후 실제 삭제 요청을 저장할 수 있습니다.");
+      return;
+    }
+
+    setBackendLoading(true);
+    const requested = await requestAccountDeletion();
+    setBackendLoading(false);
+
+    if (!requested.ok) {
+      setBackendNotice(`Supabase 삭제 요청 필요: ${requested.error}`);
+      Alert.alert("삭제 요청 실패", requested.error);
+      return;
+    }
+
+    setDeletionStatus("요청됨");
+    setDiscoverable(false);
+    setRemoteProfiles([]);
+    setPendingRequests([]);
+    setThreads([]);
+    setSelectedThreadId(undefined);
+    setOnboarded(false);
+    setOnboardingOpen(false);
+    setProfile((current) => ({
+      ...current,
+      locationLabel: "계정 삭제 요청됨",
+      permissionGranted: false
+    }));
+    setBackendNotice("계정 삭제 요청이 Supabase에 접수됐어요");
+    setActiveTab("profile");
+    Alert.alert("삭제 요청 접수", "프로필 노출과 위치 추천을 중지했어요. 운영 보관 정책에 따라 삭제가 처리됩니다.");
+  }
+
+  async function handleSendMessage(thread: ChatThread) {
+    const text = composerText.trim();
+
+    if (!text) {
+      return;
+    }
+
+    if (containsSensitiveContact(text)) {
+      Alert.alert("연락처 공유 제한", "전화번호, 주소, 외부 메신저 ID는 초기 안전 정책상 조금 더 신뢰가 쌓인 뒤 허용할 예정입니다.");
+      return;
+    }
+
+    if (canUseBackend() && isUuid(thread.id)) {
+      setBackendLoading(true);
+      const sent = await sendConversationMessage(thread.id, text);
+      setBackendLoading(false);
+
+      if (!sent.ok) {
+        setBackendNotice(`Supabase 메시지 전송 필요: ${sent.error}`);
+        Alert.alert("메시지 전송 실패", sent.error);
+        return;
+      }
+
+      appendMessageToThread(thread.id, sent.data);
+      setBackendNotice("Supabase 메시지 전송 완료");
+      setComposerText("");
+      return;
+    }
+
+    appendMessageToThread(thread.id, {
+      id: `message-${Date.now()}`,
+      authorId: "me",
+      body: text,
+      createdAt: new Date().toISOString()
+    });
+    setComposerText("");
+  }
+
+  function appendMessageToThread(threadId: string, message: ChatMessage) {
+    setThreads((current) =>
+      current.map((item) => {
+        if (item.id !== threadId || item.messages.some((existing) => existing.id === message.id)) {
+          return item;
+        }
+
+        return {
+          ...item,
+          messages: [...item.messages, message],
+          unreadCount: selectedThreadId === threadId || message.authorId === "me" ? item.unreadCount : item.unreadCount + 1
+        };
+      })
+    );
+  }
+
+  function handleStartMessage(target: NearbyProfile) {
+    const existingThread = threads.find((thread) => thread.participant.id === target.id);
+
+    if (existingThread) {
+      setSelectedThreadId(existingThread.id);
+      setActiveTab("chats");
+      return;
+    }
+
+    const pendingRequest = pendingRequests.find((request) => request.peer.id === target.id);
+
+    if (pendingRequest) {
+      Alert.alert("요청 대기 중", "상대가 수락하면 채팅방이 열립니다.");
+      setActiveTab("chats");
+      return;
+    }
+
+    setMessageRequestTarget(target);
+    setMessageRequestText("안녕하세요. 근처 관심사가 비슷해서 쪽지드려요.");
+  }
+
+  async function handleSendMessageRequest() {
+    const target = messageRequestTarget;
+    const text = messageRequestText.trim();
+
+    if (!target) {
+      return;
+    }
+
+    if (text.length < 8) {
+      Alert.alert("쪽지를 조금 더 적어주세요", "상대가 안심하고 수락할 수 있도록 한 문장 이상 작성해 주세요.");
+      return;
+    }
+
+    if (containsSensitiveContact(text)) {
+      Alert.alert("첫 쪽지는 앱 안에서만", "전화번호, 주소, 외부 메신저 ID가 포함된 첫 쪽지는 보낼 수 없어요.");
+      return;
+    }
+
+    if (sentRequestCount >= baseDailyMessageRequests + extraMessagePasses) {
+      Alert.alert("오늘의 첫 쪽지를 모두 사용했어요", "리워드 탭에서 추가 쪽지권을 받을 수 있습니다.");
+      setActiveTab("rewards");
+      setMessageRequestTarget(null);
+      return;
+    }
+
+    if (sentRequestCount >= baseDailyMessageRequests && extraMessagePasses > 0) {
+      setExtraMessagePasses((current) => Math.max(0, current - 1));
+    }
+
+    let requestId = `request-${Date.now()}`;
+
+    if (canUseBackend() && isUuid(target.id)) {
+      setBackendLoading(true);
+      const created = await createMessageRequest(target.id, text);
+      setBackendLoading(false);
+
+      if (!created.ok) {
+        setBackendNotice(`Supabase 쪽지 요청 필요: ${created.error}`);
+        Alert.alert("쪽지 요청 실패", created.error);
+        return;
+      }
+
+      requestId = created.data;
+      setBackendNotice("Supabase 쪽지 요청 저장 완료");
+    }
+
+    setPendingRequests((current) => [
+      {
+        id: requestId,
+        peer: target,
+        body: text.slice(0, 160),
+        createdAt: new Date().toISOString(),
+        direction: "sent",
+        status: "pending"
+      },
+      ...current
+    ]);
+    setMessageRequestTarget(null);
+    setMessageRequestText("");
+    setActiveTab("chats");
+    Alert.alert("쪽지 요청을 보냈어요", "상대가 수락하면 대화가 열립니다.");
+  }
+
+  async function handleAcceptRequest(request: LocalMessageRequest) {
+    if (request.direction !== "received") {
+      return;
+    }
+
+    if (canUseBackend() && isUuid(request.id)) {
+      setBackendLoading(true);
+      const accepted = await acceptMessageRequest(request.id);
+      setBackendLoading(false);
+
+      if (!accepted.ok) {
+        setBackendNotice(`Supabase 요청 수락 필요: ${accepted.error}`);
+        Alert.alert("요청 수락 실패", accepted.error);
+        return;
+      }
+
+      setBackendNotice("Supabase 대화방 생성 완료");
+      await syncChatState();
+      setSelectedThreadId(accepted.data);
+      setActiveTab("chats");
+      return;
+    }
+
+    const threadId = `thread-${Date.now()}`;
+    setThreads((current) => [
+      {
+        id: threadId,
+        participant: request.peer,
+        unreadCount: 0,
+        messages: [
+          {
+            id: `message-${Date.now()}`,
+            authorId: request.peer.id,
+            body: request.body,
+            createdAt: request.createdAt
+          }
+        ]
+      },
+      ...current
+    ]);
+    setPendingRequests((current) => current.filter((item) => item.id !== request.id));
+    setSelectedThreadId(threadId);
+  }
+
+  async function handleDeclineRequest(request: LocalMessageRequest) {
+    if (request.direction !== "received") {
+      return;
+    }
+
+    if (canUseBackend() && isUuid(request.id)) {
+      setBackendLoading(true);
+      const declined = await declineMessageRequest(request.id);
+      setBackendLoading(false);
+
+      if (!declined.ok) {
+        setBackendNotice(`Supabase 요청 거절 필요: ${declined.error}`);
+        Alert.alert("요청 거절 실패", declined.error);
+        return;
+      }
+    }
+
+    setPendingRequests((current) => current.filter((item) => item.id !== request.id));
+    setBackendNotice("쪽지 요청을 정리했어요");
+  }
+
+  function handleHideThread(threadId: string) {
+    setThreads((current) => current.filter((thread) => thread.id !== threadId));
+    setSelectedThreadId(undefined);
+    setSafetyThread(null);
+  }
+
+  async function handleBlockThread(thread: ChatThread) {
+    if (canUseBackend() && isUuid(thread.participant.id)) {
+      setBackendLoading(true);
+      const blocked = await blockProfile(thread.participant.id);
+      setBackendLoading(false);
+
+      if (!blocked.ok) {
+        setBackendNotice(`Supabase 차단 저장 필요: ${blocked.error}`);
+        Alert.alert("차단 저장 실패", blocked.error);
+        return;
+      }
+    }
+
+    setBlockedProfileIds((current) => [...new Set([...current, thread.participant.id])]);
+    setThreads((current) => current.filter((item) => item.id !== thread.id));
+    setPendingRequests((current) => current.filter((request) => request.peer.id !== thread.participant.id));
+    setSelectedThreadId(undefined);
+    setSafetyThread(null);
+    Alert.alert("차단했어요", "상대는 더 이상 추천과 쪽지 목록에 표시되지 않습니다.");
+  }
+
+  async function handleReportThread(reason: string) {
+    if (safetyThread && canUseBackend() && isUuid(safetyThread.participant.id)) {
+      setBackendLoading(true);
+      const reported = await reportProfile(safetyThread.participant.id, reason);
+      setBackendLoading(false);
+
+      if (!reported.ok) {
+        setBackendNotice(`Supabase 신고 저장 필요: ${reported.error}`);
+        Alert.alert("신고 저장 실패", reported.error);
+        return;
+      }
+    }
+
+    setSafetyThread(null);
+    Alert.alert("신고가 접수됐어요", `${reason} 사유로 운영 검토 큐에 등록됩니다.`);
+  }
+
+  function handleReward(perk: RewardPerk) {
+    if (rewardCredits < perk.cost) {
+      Alert.alert("광고 시청 필요", "리워드 광고를 보고 크레딧을 충전할 수 있습니다.");
+      return;
+    }
+
+    setRewardCredits((current) => current - perk.cost);
+    if (perk.id === "perk-01") {
+      setExtraMessagePasses((current) => current + 1);
+    }
+    Alert.alert("혜택 적용", `${perk.title} 혜택이 적용되었습니다.`);
+  }
+
+  function handleEarnCredit() {
+    if (earnedToday >= 3) {
+      Alert.alert("오늘은 충분해요", "리워드 광고 보상은 하루 3회까지만 받을 수 있습니다.");
+      return;
+    }
+
+    setAdLoading(true);
+    setTimeout(async () => {
+      if (canUseBackend()) {
+        const reward = await claimAdReward();
+
+        if (!reward.ok) {
+          setAdLoading(false);
+          setBackendNotice(`Supabase 리워드 기록 필요: ${reward.error}`);
+          Alert.alert("보상 지급 실패", reward.error);
+          return;
+        }
+
+        setRewardCredits((current) => current + (reward.data.grantedAmount ?? 1));
+        setEarnedToday(reward.data.earnedToday);
+        setBackendNotice("Supabase 리워드 기록 완료");
+      } else {
+        setRewardCredits((current) => current + 1);
+        setEarnedToday((current) => current + 1);
+      }
+      setAdLoading(false);
+      Alert.alert("보상 지급", "광고 시청이 확인되어 1 크레딧을 지급했어요.");
+    }, 900);
+  }
+
+  return (
+    <SafeAreaView style={styles.safeArea}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        style={styles.appRoot}
+      >
+        <View style={styles.header}>
+          <View style={styles.brandLockup}>
+            <MascotMark size="sm" />
+            <View>
+              <Text style={styles.kicker}>DongneOn</Text>
+              <Text style={styles.headerTitle}>가까운 사람과 안전하게</Text>
+            </View>
+          </View>
+          <Pressable
+            accessibilityLabel="내 프로필 열기"
+            accessibilityRole="button"
+            onPress={() => setOnboardingOpen(true)}
+            style={styles.iconButton}
+          >
+            <Ionicons color={colors.ink} name="person-circle-outline" size={25} />
+          </Pressable>
+        </View>
+
+        {activeTab === "discover" ? (
+          <DiscoverScreen
+            isOnboarded={isOnboarded}
+            locationLabel={profile.locationLabel}
+            locationPermissionGranted={profile.permissionGranted}
+            selectedInterest={selectedInterest}
+            selectedInterests={selectedInterests}
+            profiles={visibleProfiles}
+            radiusKm={radiusKm}
+            remainingMessageRequests={remainingMessageRequests}
+            totalMessageRequestAllowance={totalMessageRequestAllowance}
+            backendNotice={backendNotice}
+            isBackendLoading={isBackendLoading}
+            onChangeRadius={handleChangeRadius}
+            onChangeInterest={setSelectedInterest}
+            onOpenOnboarding={() => setOnboardingOpen(true)}
+            onStartMessage={handleStartMessage}
+            onRefreshLocation={handleLocate}
+            isLocating={isLocating}
+          />
+        ) : null}
+
+        {activeTab === "chats" ? (
+          <ChatsScreen
+            backendNotice={backendNotice}
+            composerText={composerText}
+            isBackendLoading={isBackendLoading}
+            onChangeComposerText={setComposerText}
+            onAcceptRequest={handleAcceptRequest}
+            onDeclineRequest={handleDeclineRequest}
+            onSelectThread={setSelectedThreadId}
+            onSendMessage={handleSendMessage}
+            onOpenSafety={setSafetyThread}
+            onOpenOnboarding={() => setOnboardingOpen(true)}
+            onRefreshChats={syncChatState}
+            selectedThread={selectedThread}
+            threads={threads}
+            pendingRequests={pendingRequests}
+          />
+        ) : null}
+
+        {activeTab === "rewards" ? (
+          <RewardsScreen
+            credits={rewardCredits}
+            earnedToday={earnedToday}
+            extraMessagePasses={extraMessagePasses}
+            isAdLoading={isAdLoading}
+            onEarnCredit={handleEarnCredit}
+            onUseReward={handleReward}
+          />
+        ) : null}
+
+        {activeTab === "profile" ? (
+          <ProfileScreen
+            deletionStatus={deletionStatus}
+            isDiscoverable={isDiscoverable}
+            onEnablePush={handleEnablePush}
+            onRequestAccountDeletion={handleRequestAccountDeletion}
+            profile={profile}
+            pushStatus={pushStatus}
+            radiusKm={radiusKm}
+            selectedInterests={selectedInterests}
+            onToggleDiscoverable={handleToggleDiscoverable}
+            onOpenOnboarding={() => setOnboardingOpen(true)}
+          />
+        ) : null}
+
+        <BottomTabs activeTab={activeTab} onChangeTab={handleChangeTab} unreadCount={totalUnread(threads)} />
+
+        <OnboardingModal
+          canClose={isOnboarded}
+          isLocating={isLocating}
+          isOpen={isOnboardingOpen}
+          onClose={handleCloseOnboarding}
+          onComplete={handleCompleteOnboarding}
+          onToggleInterest={handleToggleInterest}
+          onLocate={handleLocate}
+          profile={profile}
+          selectedInterests={selectedInterests}
+          setProfile={setProfile}
+        />
+
+        <MessageRequestModal
+          onChangeText={setMessageRequestText}
+          onClose={() => setMessageRequestTarget(null)}
+          onSend={handleSendMessageRequest}
+          target={messageRequestTarget}
+          text={messageRequestText}
+        />
+
+        <SafetyActionModal
+          onBlock={handleBlockThread}
+          onClose={() => setSafetyThread(null)}
+          onHide={handleHideThread}
+          onReport={handleReportThread}
+          thread={safetyThread}
+        />
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
+}
+
+function DiscoverScreen({
+  isLocating,
+  isOnboarded,
+  isBackendLoading,
+  backendNotice,
+  locationLabel,
+  locationPermissionGranted,
+  selectedInterest,
+  selectedInterests,
+  onChangeInterest,
+  onChangeRadius,
+  onOpenOnboarding,
+  onRefreshLocation,
+  onStartMessage,
+  profiles,
+  radiusKm,
+  remainingMessageRequests,
+  totalMessageRequestAllowance
+}: {
+  isLocating: boolean;
+  isOnboarded: boolean;
+  isBackendLoading: boolean;
+  backendNotice: string;
+  locationLabel: string;
+  locationPermissionGranted: boolean;
+  selectedInterest: InterestFilter;
+  selectedInterests: string[];
+  onChangeInterest: (filter: InterestFilter) => void;
+  onChangeRadius: (radiusKm: number) => void;
+  onOpenOnboarding: () => void;
+  onRefreshLocation: () => void;
+  onStartMessage: (profile: NearbyProfile) => void;
+  profiles: NearbyProfile[];
+  radiusKm: number;
+  remainingMessageRequests: number;
+  totalMessageRequestAllowance: number;
+}) {
+  return (
+    <ScrollView contentContainerStyle={styles.screenScroll} showsVerticalScrollIndicator={false}>
+      <View style={styles.locationBand}>
+        <View style={styles.locationIcon}>
+          <Ionicons color={colors.teal} name="location" size={22} />
+        </View>
+        <View style={styles.fill}>
+          <Text style={styles.sectionEyebrow}>내 동네</Text>
+          <Text style={styles.locationTitle}>{locationLabel}</Text>
+        </View>
+        <Pressable
+          accessibilityLabel="위치 새로고침"
+          accessibilityRole="button"
+          onPress={onRefreshLocation}
+          style={styles.smallIconButton}
+        >
+          {isLocating ? (
+            <ActivityIndicator color={colors.teal} size="small" />
+          ) : (
+            <Ionicons color={colors.teal} name="refresh" size={19} />
+          )}
+        </Pressable>
+      </View>
+
+      <View style={styles.backendBand}>
+        <Ionicons color={canUseBackend() ? colors.teal : colors.mutedInk} name="server" size={18} />
+        <Text style={styles.backendText}>{isBackendLoading ? "Supabase 동기화 중..." : backendNotice}</Text>
+      </View>
+
+      <View style={styles.radiusPanel}>
+        <View>
+          <Text style={styles.panelTitle}>반경 {radiusKm}km</Text>
+          <Text style={styles.panelCaption}>정확한 위치는 서로에게 보이지 않아요.</Text>
+        </View>
+        <View style={styles.radiusStepper}>
+          <Pressable
+            accessibilityLabel="반경 줄이기"
+            accessibilityRole="button"
+            onPress={() => onChangeRadius(radiusKm - 1)}
+            style={styles.stepButton}
+          >
+            <Ionicons color={colors.ink} name="remove" size={18} />
+          </Pressable>
+          <Text style={styles.radiusValue}>{radiusKm}</Text>
+          <Pressable
+            accessibilityLabel="반경 늘리기"
+            accessibilityRole="button"
+            onPress={() => onChangeRadius(radiusKm + 1)}
+            style={styles.stepButton}
+          >
+            <Ionicons color={colors.ink} name="add" size={18} />
+          </Pressable>
+        </View>
+      </View>
+
+      <View style={styles.filterRow}>
+        {interestFilters.map((filter) => {
+          const active = selectedInterest === filter;
+
+          return (
+            <Pressable
+              accessibilityLabel={`${filter} 관심사 필터`}
+              accessibilityRole="button"
+              key={filter}
+              onPress={() => onChangeInterest(filter)}
+              style={[styles.filterChip, active ? styles.filterChipActive : undefined]}
+            >
+              <Text style={[styles.filterText, active ? styles.filterTextActive : undefined]}>{filter}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <View style={styles.recommendationBand}>
+        <View style={styles.recommendationMetric}>
+          <Ionicons color={colors.teal} name="chatbubble-ellipses" size={19} />
+          <View style={styles.fill}>
+            <Text style={styles.panelTitle}>오늘 첫 쪽지 {remainingMessageRequests}회 남음</Text>
+            <Text style={styles.panelCaption}>기본 {baseDailyMessageRequests}회 + 리워드 보상까지 반영해요.</Text>
+          </View>
+          <Text style={styles.metricPill}>
+            {remainingMessageRequests}/{totalMessageRequestAllowance}
+          </Text>
+        </View>
+        <View style={styles.recommendationMetric}>
+          <Ionicons color={colors.lilac} name="sparkles" size={19} />
+          <View style={styles.fill}>
+            <Text style={styles.panelTitle}>추천 기준</Text>
+            <Text style={styles.panelCaption}>공통 관심사, 거리, 최근 활동, 응답률을 함께 봅니다.</Text>
+          </View>
+        </View>
+      </View>
+
+      <SectionHeader title="가까운 친구" value={`${profiles.length}명`} />
+
+      {!isOnboarded ? (
+        <EmptyState
+          actionLabel="프로필 완성하기"
+          icon="lock-closed"
+          onAction={onOpenOnboarding}
+          title="안전 프로필을 먼저 확인해요"
+          body="만 18세 이상 확인과 기본 동의가 끝나면 가까운 친구를 볼 수 있어요."
+        />
+      ) : !locationPermissionGranted ? (
+        <EmptyState
+          actionLabel="위치 허용하기"
+          icon="location"
+          onAction={onRefreshLocation}
+          title="아직 동네를 확인하지 않았어요"
+          body="정확한 주소는 보이지 않고, 5km 이내 추천에만 사용해요."
+        />
+      ) : profiles.length === 0 ? (
+        <EmptyState
+          actionLabel="위치 다시 확인"
+          icon="search"
+          onAction={onRefreshLocation}
+          title="아직 5km 안에 표시할 친구가 없어요"
+          body="처음에는 지역 밀도를 천천히 채워가요. 위치를 다시 확인하거나 잠시 후 확인해 주세요."
+        />
+      ) : (
+        <View style={styles.profileList}>
+          {profiles.map((profile) => (
+            <NeighborRow
+              key={profile.id}
+              onMessage={onStartMessage}
+              profile={profile}
+              selectedInterests={selectedInterests}
+            />
+          ))}
+        </View>
+      )}
+
+      <View style={styles.safetyBand}>
+        <Ionicons color={colors.lilac} name="shield-checkmark" size={22} />
+        <View style={styles.fill}>
+          <Text style={styles.panelTitle}>먼저 안전하게 시작해요</Text>
+          <Text style={styles.panelCaption}>
+            첫 쪽지는 신고/차단이 가능한 요청으로 보내고, 수락 후 대화가 열립니다.
+          </Text>
+        </View>
+      </View>
+    </ScrollView>
+  );
+}
+
+function NeighborRow({
+  onMessage,
+  profile,
+  selectedInterests
+}: {
+  onMessage: (profile: NearbyProfile) => void;
+  profile: NearbyProfile;
+  selectedInterests: string[];
+}) {
+  const matchScore = calculateMatchScore(profile, selectedInterests);
+  const insight = getRecommendationInsight(profile, selectedInterests);
+
+  return (
+    <View style={styles.neighborRow}>
+      <Avatar color={profile.avatarColor} label={profile.name} />
+      <View style={styles.neighborBody}>
+        <View style={styles.neighborTopLine}>
+          <Text style={styles.neighborName}>
+            {profile.name}, {profile.age}
+          </Text>
+          {profile.verified ? (
+            <View style={styles.verifiedBadge}>
+              <Ionicons color={colors.teal} name="checkmark-circle" size={14} />
+              <Text style={styles.verifiedText}>확인됨</Text>
+            </View>
+          ) : null}
+        </View>
+        <Text style={styles.neighborMeta}>
+          {profile.neighborhood} · {formatDistance(profile.distanceKm)} · {profile.lastActiveMinutes}분 전
+        </Text>
+        <View style={styles.matchRow}>
+          <View style={styles.matchMeterTrack}>
+            <View style={[styles.matchMeterFill, { width: `${matchScore}%` }]} />
+          </View>
+          <Text style={styles.matchScore}>{matchScore}% 추천</Text>
+        </View>
+        <Text numberOfLines={1} style={styles.recommendReason}>
+          {insight}
+        </Text>
+        <Text numberOfLines={2} style={styles.neighborIntro}>
+          {profile.intro}
+        </Text>
+        <View style={styles.tagRow}>
+          {profile.tags.map((tag) => (
+            <View key={tag} style={styles.tag}>
+              <Text style={styles.tagText}>{tag}</Text>
+            </View>
+          ))}
+        </View>
+      </View>
+      <Pressable
+        accessibilityLabel={`${profile.name}님에게 쪽지 요청 보내기`}
+        accessibilityRole="button"
+        onPress={() => onMessage(profile)}
+        style={({ pressed }) => [styles.messageButton, pressed && styles.pressed]}
+      >
+        <Ionicons color={colors.white} name="chatbubble-ellipses" size={19} />
+      </Pressable>
+    </View>
+  );
+}
+
+function ChatsScreen({
+  backendNotice,
+  composerText,
+  isBackendLoading,
+  onAcceptRequest,
+  onChangeComposerText,
+  onDeclineRequest,
+  onOpenOnboarding,
+  onOpenSafety,
+  onRefreshChats,
+  onSelectThread,
+  onSendMessage,
+  pendingRequests,
+  selectedThread,
+  threads
+}: {
+  backendNotice: string;
+  composerText: string;
+  isBackendLoading: boolean;
+  onAcceptRequest: (request: LocalMessageRequest) => void | Promise<void>;
+  onChangeComposerText: (value: string) => void;
+  onDeclineRequest: (request: LocalMessageRequest) => void | Promise<void>;
+  onOpenOnboarding: () => void;
+  onOpenSafety: (thread: ChatThread) => void;
+  onRefreshChats: () => void | Promise<void>;
+  onSelectThread: (threadId: string) => void;
+  onSendMessage: (thread: ChatThread) => void | Promise<void>;
+  pendingRequests: LocalMessageRequest[];
+  selectedThread?: ChatThread;
+  threads: ChatThread[];
+}) {
+  const hasThreads = threads.length > 0;
+
+  return (
+    <View style={styles.chatScreen}>
+      <View style={styles.chatStatusBand}>
+        <Ionicons color={canUseBackend() ? colors.teal : colors.mutedInk} name="sync" size={18} />
+        <Text style={styles.backendText}>{isBackendLoading ? "대화 동기화 중..." : backendNotice}</Text>
+        <Pressable
+          accessibilityLabel="대화 새로고침"
+          accessibilityRole="button"
+          onPress={onRefreshChats}
+          style={styles.smallIconButton}
+        >
+          {isBackendLoading ? (
+            <ActivityIndicator color={colors.teal} size="small" />
+          ) : (
+            <Ionicons color={colors.teal} name="refresh" size={18} />
+          )}
+        </Pressable>
+      </View>
+
+      {hasThreads ? (
+        <View style={styles.threadRail}>
+          <FlatList
+            data={threads}
+            horizontal
+            keyExtractor={(item) => item.id}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.threadRailContent}
+            renderItem={({ item }) => (
+              <Pressable
+                accessibilityLabel={`${item.participant.name}님과의 대화 열기`}
+                accessibilityRole="button"
+                onPress={() => onSelectThread(item.id)}
+                style={[
+                  styles.threadChip,
+                  selectedThread?.id === item.id ? styles.threadChipActive : undefined
+                ]}
+              >
+                <Avatar color={item.participant.avatarColor} label={item.participant.name} size={34} />
+                <Text style={styles.threadChipText}>{item.participant.name}</Text>
+                {item.unreadCount ? <View style={styles.unreadDot} /> : null}
+              </Pressable>
+            )}
+          />
+        </View>
+      ) : null}
+
+      {pendingRequests.length > 0 ? (
+        <View style={styles.pendingPanel}>
+          <SectionHeader title="쪽지 요청함" value={`${pendingRequests.length}개 대기`} />
+          {pendingRequests.map((request) => (
+            <PendingRequestRow
+              key={request.id}
+              onAccept={onAcceptRequest}
+              onDecline={onDeclineRequest}
+              request={request}
+            />
+          ))}
+        </View>
+      ) : null}
+
+      {selectedThread ? (
+        <>
+          <View style={styles.chatHeader}>
+            <Avatar color={selectedThread.participant.avatarColor} label={selectedThread.participant.name} size={44} />
+            <View style={styles.fill}>
+              <Text style={styles.panelTitle}>{selectedThread.participant.name}</Text>
+              <Text style={styles.panelCaption}>
+                {selectedThread.participant.neighborhood} · {formatDistance(selectedThread.participant.distanceKm)}
+              </Text>
+            </View>
+            <Pressable
+              accessibilityLabel="신고 또는 차단 메뉴 열기"
+              accessibilityRole="button"
+              onPress={() => onOpenSafety(selectedThread)}
+              style={styles.smallIconButton}
+            >
+              <Ionicons color={colors.danger} name="ban" size={18} />
+            </Pressable>
+          </View>
+
+          <ScrollView contentContainerStyle={styles.messageList} showsVerticalScrollIndicator={false}>
+            {selectedThread.messages.map((message) => {
+              const mine = message.authorId === "me";
+
+              return (
+                <View
+                  key={message.id}
+                  style={[styles.messageBubble, mine ? styles.messageMine : styles.messageOther]}
+                >
+                  <Text style={[styles.messageText, mine ? styles.messageTextMine : undefined]}>
+                    {message.body}
+                  </Text>
+                </View>
+              );
+            })}
+          </ScrollView>
+
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.quickReplyBar}
+            contentContainerStyle={styles.quickReplyContent}
+          >
+            {getQuickReplies(selectedThread.participant).map((reply) => (
+              <Pressable
+                accessibilityLabel={`빠른 답장: ${reply}`}
+                accessibilityRole="button"
+                key={reply}
+                onPress={() => onChangeComposerText(reply)}
+                style={styles.quickReplyChip}
+              >
+                <Text style={styles.quickReplyText}>{reply}</Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+
+          <View style={styles.composer}>
+            <TextInput
+              multiline
+              onChangeText={onChangeComposerText}
+              placeholder="메시지 입력"
+              placeholderTextColor={colors.mutedInk}
+              style={styles.composerInput}
+              value={composerText}
+            />
+            <Pressable
+              accessibilityLabel="메시지 전송"
+              accessibilityRole="button"
+              onPress={() => onSendMessage(selectedThread)}
+              style={styles.sendButton}
+            >
+              <Ionicons color={colors.white} name="send" size={18} />
+            </Pressable>
+          </View>
+        </>
+      ) : (
+        <ScrollView contentContainerStyle={styles.screenScroll} showsVerticalScrollIndicator={false}>
+          <EmptyState
+            actionLabel="프로필 확인"
+            icon="chatbubbles"
+            onAction={onOpenOnboarding}
+            title="아직 열린 대화가 없어요"
+            body="상대가 쪽지 요청을 수락하면 이곳에 안전한 대화방이 열립니다."
+          />
+        </ScrollView>
+      )}
+    </View>
+  );
+}
+
+function PendingRequestRow({
+  onAccept,
+  onDecline,
+  request
+}: {
+  onAccept: (request: LocalMessageRequest) => void | Promise<void>;
+  onDecline: (request: LocalMessageRequest) => void | Promise<void>;
+  request: LocalMessageRequest;
+}) {
+  const received = request.direction === "received";
+
+  return (
+    <View style={styles.pendingRow}>
+      <Avatar color={request.peer.avatarColor} label={request.peer.name} size={38} />
+      <View style={styles.fill}>
+        <Text style={styles.panelTitle}>
+          {received ? `${request.peer.name}님에게서 온 요청` : `${request.peer.name}님에게 보낸 요청`}
+        </Text>
+        <Text numberOfLines={1} style={styles.panelCaption}>
+          {request.body}
+        </Text>
+      </View>
+      {received ? (
+        <View style={styles.pendingActions}>
+          <Pressable
+            accessibilityLabel={`${request.peer.name} 요청 거절`}
+            accessibilityRole="button"
+            onPress={() => onDecline(request)}
+            style={styles.pendingActionGhost}
+          >
+            <Ionicons color={colors.mutedInk} name="close" size={17} />
+          </Pressable>
+          <Pressable
+            accessibilityLabel={`${request.peer.name} 요청 수락`}
+            accessibilityRole="button"
+            onPress={() => onAccept(request)}
+            style={styles.pendingActionButton}
+          >
+            <Ionicons color={colors.white} name="checkmark" size={17} />
+          </Pressable>
+        </View>
+      ) : (
+        <View style={styles.pendingBadge}>
+          <Text style={styles.pendingBadgeText}>대기</Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
+function RewardsScreen({
+  credits,
+  earnedToday,
+  extraMessagePasses,
+  isAdLoading,
+  onEarnCredit,
+  onUseReward
+}: {
+  credits: number;
+  earnedToday: number;
+  extraMessagePasses: number;
+  isAdLoading: boolean;
+  onEarnCredit: () => void;
+  onUseReward: (perk: RewardPerk) => void;
+}) {
+  return (
+    <ScrollView contentContainerStyle={styles.screenScroll} showsVerticalScrollIndicator={false}>
+      <View style={styles.rewardHero}>
+        <View style={styles.rewardIcon}>
+          <Ionicons color={colors.ink} name="sparkles" size={25} />
+        </View>
+        <View style={styles.fill}>
+          <Text style={styles.rewardTitle}>{credits} 크레딧</Text>
+          <Text style={styles.rewardCaption}>
+            선택한 보상에서만 광고를 보여주고, 오늘 {earnedToday}/3회 지급했어요. 추가 쪽지권 {extraMessagePasses}개 보유 중.
+          </Text>
+        </View>
+      </View>
+
+      <Pressable
+        accessibilityLabel="리워드 광고 보고 크레딧 받기"
+        accessibilityRole="button"
+        disabled={isAdLoading}
+        onPress={onEarnCredit}
+        style={[styles.earnButton, isAdLoading ? styles.disabledButton : undefined]}
+      >
+        {isAdLoading ? (
+          <ActivityIndicator color={colors.white} />
+        ) : (
+          <Ionicons color={colors.white} name="play-circle" size={21} />
+        )}
+        <Text style={styles.earnButtonText}>{isAdLoading ? "광고 확인 중" : "리워드 광고 보고 1 크레딧 받기"}</Text>
+      </Pressable>
+
+      <SectionHeader title="사용 가능한 혜택" value="AdMob 연결 예정" />
+
+      <View style={styles.rewardList}>
+        {rewardPerks.map((perk) => (
+          <RewardRow key={perk.id} credits={credits} onUseReward={onUseReward} perk={perk} />
+        ))}
+      </View>
+    </ScrollView>
+  );
+}
+
+function RewardRow({
+  credits,
+  onUseReward,
+  perk
+}: {
+  credits: number;
+  onUseReward: (perk: RewardPerk) => void;
+  perk: RewardPerk;
+}) {
+  const accent = {
+    coral: colors.coral,
+    teal: colors.teal,
+    lilac: colors.lilac,
+    yellow: colors.yellow
+  }[perk.accent];
+
+  return (
+    <View style={styles.rewardRow}>
+      <View style={[styles.rewardDot, { backgroundColor: accent }]} />
+      <View style={styles.fill}>
+        <Text style={styles.panelTitle}>{perk.title}</Text>
+        <Text style={styles.panelCaption}>{perk.description}</Text>
+      </View>
+      <Pressable
+        accessibilityLabel={`${perk.title} 사용`}
+        accessibilityRole="button"
+        onPress={() => onUseReward(perk)}
+        style={[styles.rewardUseButton, credits < perk.cost ? styles.disabledButton : undefined]}
+      >
+        <Text style={styles.rewardUseText}>{perk.cost}</Text>
+        <Ionicons color={colors.white} name="flash" size={14} />
+      </Pressable>
+    </View>
+  );
+}
+
+function ProfileScreen({
+  deletionStatus,
+  isDiscoverable,
+  onEnablePush,
+  onOpenOnboarding,
+  onRequestAccountDeletion,
+  onToggleDiscoverable,
+  profile,
+  pushStatus,
+  radiusKm,
+  selectedInterests
+}: {
+  deletionStatus: string;
+  isDiscoverable: boolean;
+  onEnablePush: () => void | Promise<void>;
+  onOpenOnboarding: () => void;
+  onRequestAccountDeletion: () => void;
+  onToggleDiscoverable: () => void | Promise<void>;
+  profile: OnboardingProfile;
+  pushStatus: string;
+  radiusKm: number;
+  selectedInterests: string[];
+}) {
+  return (
+    <ScrollView contentContainerStyle={styles.screenScroll} showsVerticalScrollIndicator={false}>
+      <View style={styles.profileSummary}>
+        <Avatar color={colors.coral} label={profile.name || "나"} size={70} />
+        <View style={styles.fill}>
+          <Text style={styles.profileName}>{profile.name || "프로필 설정 필요"}</Text>
+          <Text style={styles.panelCaption}>
+            {profile.age || "-"}세 · {genderLabel(profile.gender)} · {profile.locationLabel}
+          </Text>
+        </View>
+        <Pressable
+          accessibilityLabel="프로필 수정"
+          accessibilityRole="button"
+          onPress={onOpenOnboarding}
+          style={styles.smallIconButton}
+        >
+          <Ionicons color={colors.teal} name="create-outline" size={19} />
+        </Pressable>
+      </View>
+
+      <View style={styles.settingsGroup}>
+        <SettingRow
+          icon={isDiscoverable ? "eye" : "eye-off"}
+          label="동네 추천 노출"
+          onPress={onToggleDiscoverable}
+          value={isDiscoverable ? "켜짐" : "꺼짐"}
+        />
+        <SettingRow
+          icon="sparkles"
+          label="관심사"
+          onPress={onOpenOnboarding}
+          value={selectedInterests.length ? selectedInterests.join(", ") : "미설정"}
+        />
+        <SettingRow icon="notifications" label="쪽지 알림" onPress={onEnablePush} value={pushStatus} />
+        <SettingRow icon="navigate" label="노출 반경" onPress={onOpenOnboarding} value={`${radiusKm}km 이내`} />
+        <SettingRow
+          icon="eye-off"
+          label="정확 위치"
+          onPress={() => Alert.alert("정확 위치 비공개", "상대에게는 대략 거리와 동네 범위만 표시됩니다.")}
+          value="비공개"
+        />
+        <SettingRow
+          icon="shield-checkmark"
+          label="신고/차단"
+          onPress={() => Alert.alert("안전 설정", "차단 목록과 신고 내역 화면으로 연결될 항목입니다.")}
+          value="항상 사용 가능"
+        />
+        <SettingRow
+          danger
+          icon="trash"
+          label="계정 삭제"
+          onPress={onRequestAccountDeletion}
+          value={deletionStatus}
+        />
+      </View>
+
+      <View style={styles.safetyBand}>
+        <Ionicons color={colors.teal} name="lock-closed" size={22} />
+        <View style={styles.fill}>
+          <Text style={styles.panelTitle}>개인정보 최소 수집</Text>
+          <Text style={styles.panelCaption}>
+            앱에는 표시용 이름, 나이, 성별, 근거리 추천용 위치만 요구하는 구조로 설계했어요.
+          </Text>
+        </View>
+      </View>
+    </ScrollView>
+  );
+}
+
+function SettingRow({
+  danger,
+  icon,
+  label,
+  onPress,
+  value
+}: {
+  danger?: boolean;
+  icon: IconName;
+  label: string;
+  onPress: () => void;
+  value: string;
+}) {
+  return (
+    <Pressable accessibilityLabel={`${label} 설정 열기`} accessibilityRole="button" onPress={onPress} style={styles.settingRow}>
+      <View style={[styles.settingIcon, danger ? styles.settingIconDanger : undefined]}>
+        <Ionicons color={danger ? colors.danger : colors.teal} name={icon} size={18} />
+      </View>
+      <Text style={styles.settingLabel}>{label}</Text>
+      <Text style={styles.settingValue}>{value}</Text>
+    </Pressable>
+  );
+}
+
+function OnboardingModal({
+  canClose,
+  isLocating,
+  isOpen,
+  onClose,
+  onComplete,
+  onToggleInterest,
+  onLocate,
+  profile,
+  selectedInterests,
+  setProfile
+}: {
+  canClose: boolean;
+  isLocating: boolean;
+  isOpen: boolean;
+  onClose: () => void;
+  onComplete: () => void;
+  onToggleInterest: (interest: string) => void;
+  onLocate: () => void;
+  profile: OnboardingProfile;
+  selectedInterests: string[];
+  setProfile: (profile: OnboardingProfile) => void;
+}) {
+  return (
+    <Modal animationType="slide" onRequestClose={onClose} transparent visible={isOpen}>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.modalSheet}>
+          <View style={styles.modalHandle} />
+          <View style={styles.modalTitleRow}>
+            <View style={styles.modalTitleCopy}>
+              <MascotMark size="sm" />
+              <Text style={styles.kicker}>시작하기</Text>
+              <Text style={styles.modalTitle}>필요한 정보만 받을게요</Text>
+            </View>
+            {canClose ? (
+              <Pressable
+                accessibilityLabel="온보딩 닫기"
+                accessibilityRole="button"
+                onPress={onClose}
+                style={styles.smallIconButton}
+              >
+                <Ionicons color={colors.ink} name="close" size={20} />
+              </Pressable>
+            ) : null}
+          </View>
+
+          <TextInput
+            onChangeText={(name) => setProfile({ ...profile, name })}
+            placeholder="이름"
+            placeholderTextColor={colors.mutedInk}
+            style={styles.input}
+            value={profile.name}
+          />
+          <TextInput
+            keyboardType="number-pad"
+            onChangeText={(age) => setProfile({ ...profile, age })}
+            placeholder="나이"
+            placeholderTextColor={colors.mutedInk}
+            style={styles.input}
+            value={profile.age}
+          />
+
+          <View style={styles.segmentGroup}>
+            {genderOptions.map((option) => (
+              <Pressable
+                key={option.value}
+                onPress={() => setProfile({ ...profile, gender: option.value })}
+                style={[
+                  styles.segmentButton,
+                  profile.gender === option.value ? styles.segmentButtonActive : undefined
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.segmentText,
+                    profile.gender === option.value ? styles.segmentTextActive : undefined
+                  ]}
+                >
+                  {option.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+
+          <View style={styles.interestPanel}>
+            <Text style={styles.sectionEyebrow}>관심사</Text>
+            <View style={styles.filterRow}>
+              {profileInterestOptions.map((interest) => {
+                const active = selectedInterests.includes(interest);
+
+                return (
+                  <Pressable
+                    accessibilityLabel={`${interest} 관심사 선택`}
+                    accessibilityRole="button"
+                    key={interest}
+                    onPress={() => onToggleInterest(interest)}
+                    style={[styles.filterChip, active ? styles.filterChipActive : undefined]}
+                  >
+                    <Text style={[styles.filterText, active ? styles.filterTextActive : undefined]}>
+                      {interest}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+
+          <Pressable
+            accessibilityLabel="위치 권한 요청"
+            accessibilityRole="button"
+            onPress={onLocate}
+            style={styles.locationPermission}
+          >
+            <Ionicons color={colors.teal} name="locate" size={21} />
+            <View style={styles.fill}>
+              <Text style={styles.panelTitle}>{profile.locationLabel}</Text>
+              <Text style={styles.panelCaption}>5km 이내 추천에만 사용하고, 나중에 허용해도 돼요.</Text>
+            </View>
+            {isLocating ? <ActivityIndicator color={colors.teal} /> : <Ionicons color={colors.teal} name="chevron-forward" size={19} />}
+          </Pressable>
+
+          <Pressable
+            accessibilityLabel="만 18세 이상 및 서비스 정책 동의"
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: profile.policyAccepted }}
+            onPress={() => setProfile({ ...profile, policyAccepted: !profile.policyAccepted })}
+            style={styles.policyRow}
+          >
+            <View style={[styles.checkbox, profile.policyAccepted ? styles.checkboxActive : undefined]}>
+              {profile.policyAccepted ? <Ionicons color={colors.white} name="checkmark" size={17} /> : null}
+            </View>
+            <Text style={styles.policyText}>
+              만 18세 이상이며, 약관·개인정보·위치기반서비스 안내를 확인했어요.
+            </Text>
+          </Pressable>
+
+          <Pressable accessibilityRole="button" onPress={onComplete} style={styles.primaryButton}>
+            <Text style={styles.primaryButtonText}>동네 친구 보기</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function MessageRequestModal({
+  onChangeText,
+  onClose,
+  onSend,
+  target,
+  text
+}: {
+  onChangeText: (value: string) => void;
+  onClose: () => void;
+  onSend: () => void;
+  target: NearbyProfile | null;
+  text: string;
+}) {
+  return (
+    <Modal animationType="slide" onRequestClose={onClose} transparent visible={Boolean(target)}>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.modalSheet}>
+          <View style={styles.modalHandle} />
+          {target ? (
+            <>
+              <View style={styles.modalTitleRow}>
+                <View style={styles.requestTitle}>
+                  <Avatar color={target.avatarColor} label={target.name} size={48} />
+                  <View style={styles.fill}>
+                    <Text style={styles.kicker}>쪽지 요청</Text>
+                    <Text style={styles.modalTitle}>{target.name}님에게 먼저 인사하기</Text>
+                  </View>
+                </View>
+                <Pressable
+                  accessibilityLabel="쪽지 요청 닫기"
+                  accessibilityRole="button"
+                  onPress={onClose}
+                  style={styles.smallIconButton}
+                >
+                  <Ionicons color={colors.ink} name="close" size={20} />
+                </Pressable>
+              </View>
+
+              <Text style={styles.requestHelp}>
+                상대가 수락하면 채팅방이 열립니다. 같은 문구 반복과 불편한 표현은 제한돼요.
+              </Text>
+
+              <View style={styles.requestSafetyBand}>
+                <Ionicons color={colors.teal} name="shield-checkmark" size={19} />
+                <Text style={styles.requestSafetyText}>
+                  첫 대화는 앱 안에서만 시작해요. 연락처, 상세 주소, 외부 메신저 ID는 자동으로 막습니다.
+                </Text>
+              </View>
+
+              <View style={styles.icebreakerPanel}>
+                <Text style={styles.sectionEyebrow}>대화 시작 템플릿</Text>
+                <View style={styles.icebreakerList}>
+                  {getIcebreakers(target).map((icebreaker) => (
+                    <Pressable
+                      accessibilityLabel={`첫 쪽지 템플릿: ${icebreaker}`}
+                      accessibilityRole="button"
+                      key={icebreaker}
+                      onPress={() => onChangeText(icebreaker)}
+                      style={styles.icebreakerChip}
+                    >
+                      <Text style={styles.icebreakerText}>{icebreaker}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+
+              <TextInput
+                multiline
+                maxLength={160}
+                onChangeText={onChangeText}
+                placeholder="가볍고 구체적인 첫 인사를 적어보세요"
+                placeholderTextColor={colors.mutedInk}
+                style={styles.requestInput}
+                value={text}
+              />
+              <Text style={styles.characterCount}>{text.trim().length}/160</Text>
+
+              <Pressable accessibilityRole="button" onPress={onSend} style={styles.primaryButton}>
+                <Text style={styles.primaryButtonText}>쪽지 요청 보내기</Text>
+              </Pressable>
+            </>
+          ) : null}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function SafetyActionModal({
+  onBlock,
+  onClose,
+  onHide,
+  onReport,
+  thread
+}: {
+  onBlock: (thread: ChatThread) => void;
+  onClose: () => void;
+  onHide: (threadId: string) => void;
+  onReport: (reason: string) => void;
+  thread: ChatThread | null;
+}) {
+  const reportReasons = ["불쾌한 메시지", "스팸/홍보", "위험한 만남 유도"];
+
+  return (
+    <Modal animationType="fade" onRequestClose={onClose} transparent visible={Boolean(thread)}>
+      <View style={styles.centerModalBackdrop}>
+        <View style={styles.actionSheet}>
+          {thread ? (
+            <>
+              <View style={styles.actionHeader}>
+                <MascotMark size="sm" />
+                <View style={styles.fill}>
+                  <Text style={styles.kicker}>안전 메뉴</Text>
+                  <Text style={styles.actionTitle}>{thread.participant.name}님과의 대화</Text>
+                </View>
+              </View>
+
+              {reportReasons.map((reason) => (
+                <Pressable
+                  accessibilityLabel={`${reason} 사유로 신고하기`}
+                  accessibilityRole="button"
+                  key={reason}
+                  onPress={() => onReport(reason)}
+                  style={styles.actionRow}
+                >
+                  <Ionicons color={colors.danger} name="flag" size={20} />
+                  <Text style={styles.actionText}>{reason}</Text>
+                </Pressable>
+              ))}
+
+              <Pressable
+                accessibilityLabel="대화 숨기기"
+                accessibilityRole="button"
+                onPress={() => onHide(thread.id)}
+                style={styles.actionRow}
+              >
+                <Ionicons color={colors.mutedInk} name="archive" size={20} />
+                <Text style={styles.actionText}>대화 숨기기</Text>
+              </Pressable>
+
+              <Pressable
+                accessibilityLabel={`${thread.participant.name}님 차단하기`}
+                accessibilityRole="button"
+                onPress={() => onBlock(thread)}
+                style={styles.actionRowDanger}
+              >
+                <Ionicons color={colors.white} name="ban" size={20} />
+                <Text style={styles.actionTextDanger}>차단하고 추천에서 숨기기</Text>
+              </Pressable>
+
+              <Pressable accessibilityRole="button" onPress={onClose} style={styles.secondaryButton}>
+                <Text style={styles.secondaryButtonText}>닫기</Text>
+              </Pressable>
+            </>
+          ) : null}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function BottomTabs({
+  activeTab,
+  onChangeTab,
+  unreadCount
+}: {
+  activeTab: TabKey;
+  onChangeTab: (tab: TabKey) => void;
+  unreadCount: number;
+}) {
+  const tabs: Array<{ key: TabKey; icon: IconName; label: string }> = [
+    { key: "discover", icon: "compass", label: "동네" },
+    { key: "chats", icon: "chatbubbles", label: "쪽지" },
+    { key: "rewards", icon: "sparkles", label: "리워드" },
+    { key: "profile", icon: "person", label: "내 정보" }
+  ];
+
+  return (
+    <View style={styles.tabBar}>
+      {tabs.map((tab) => {
+        const active = activeTab === tab.key;
+        const showBadge = tab.key === "chats" && unreadCount > 0;
+
+        return (
+          <Pressable
+            key={tab.key}
+            accessibilityLabel={`${tab.label} 탭 열기`}
+            accessibilityRole="button"
+            onPress={() => onChangeTab(tab.key)}
+            style={styles.tabItem}
+          >
+            <View style={[styles.tabIconWrap, active ? styles.tabIconWrapActive : undefined]}>
+              <Ionicons color={active ? colors.white : colors.mutedInk} name={tab.icon} size={19} />
+              {showBadge ? <View style={styles.tabBadge} /> : null}
+            </View>
+            <Text style={[styles.tabLabel, active ? styles.tabLabelActive : undefined]}>{tab.label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+function EmptyState({
+  actionLabel,
+  body,
+  icon,
+  onAction,
+  title
+}: {
+  actionLabel: string;
+  body: string;
+  icon: IconName;
+  onAction: () => void;
+  title: string;
+}) {
+  return (
+    <View style={styles.emptyState}>
+      <MascotMark size="lg" />
+      <View style={styles.emptyIcon}>
+        <Ionicons color={colors.teal} name={icon} size={21} />
+      </View>
+      <Text style={styles.emptyTitle}>{title}</Text>
+      <Text style={styles.emptyBody}>{body}</Text>
+      <Pressable accessibilityLabel={actionLabel} accessibilityRole="button" onPress={onAction} style={styles.secondaryButton}>
+        <Text style={styles.secondaryButtonText}>{actionLabel}</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function SectionHeader({ title, value }: { title: string; value: string }) {
+  return (
+    <View style={styles.sectionHeader}>
+      <Text style={styles.sectionTitle}>{title}</Text>
+      <Text style={styles.sectionValue}>{value}</Text>
+    </View>
+  );
+}
+
+function Avatar({ color, label, size = 48 }: { color: string; label: string; size?: number }) {
+  return (
+    <View style={[styles.avatar, { backgroundColor: color, height: size, width: size }]}>
+      <Text style={[styles.avatarText, { fontSize: Math.max(14, size * 0.34) }]}>{label.slice(0, 1)}</Text>
+    </View>
+  );
+}
+
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function totalUnread(threads: ChatThread[]) {
+  return threads.reduce((sum, thread) => sum + thread.unreadCount, 0);
+}
+
+function containsSensitiveContact(text: string) {
+  const compact = text.replace(/\s/g, "");
+  const phonePattern = /01[016789]-?\d{3,4}-?\d{4}/;
+  const externalMessengerPattern = /(카톡|카카오톡|오픈채팅|라인|텔레그램|인스타|dm|아이디|id)/i;
+  const exactAddressPattern = /(주소|몇동|몇호|집앞|집 앞|현관|공동현관)/;
+
+  return phonePattern.test(compact) || externalMessengerPattern.test(text) || exactAddressPattern.test(text);
+}
+
+function calculateMatchScore(profile: NearbyProfile, selectedInterests: string[]) {
+  const sharedInterestCount = profile.tags.filter((tag) => selectedInterests.includes(tag)).length;
+  const interestScore = Math.min(34, sharedInterestCount * 17);
+  const distanceScore = Math.max(0, 24 - profile.distanceKm * 4);
+  const activityScore = Math.max(0, 18 - Math.floor(profile.lastActiveMinutes / 5));
+  const responseScore = Math.min(18, Math.round(profile.responseRate / 6));
+  const verifiedScore = profile.verified ? 6 : 0;
+
+  return Math.max(45, Math.min(98, Math.round(interestScore + distanceScore + activityScore + responseScore + verifiedScore)));
+}
+
+function getRecommendationInsight(profile: NearbyProfile, selectedInterests: string[]) {
+  const sharedInterests = profile.tags.filter((tag) => selectedInterests.includes(tag));
+
+  if (sharedInterests.length > 0) {
+    return `공통 관심사 ${sharedInterests.slice(0, 2).join(", ")} · 응답률 ${profile.responseRate}%`;
+  }
+
+  if (profile.distanceKm <= 1) {
+    return `아주 가까운 거리 · 응답률 ${profile.responseRate}%`;
+  }
+
+  if (profile.lastActiveMinutes <= 15) {
+    return `최근 활동 중 · 응답률 ${profile.responseRate}%`;
+  }
+
+  return `관심사 확장 추천 · 응답률 ${profile.responseRate}%`;
+}
+
+function getIcebreakers(target: NearbyProfile) {
+  const primaryTag = target.tags[0] ?? "동네";
+
+  return [
+    `${primaryTag} 이야기 좋아하신다고 해서 반가웠어요. 요즘 동네에서 좋았던 곳 있으세요?`,
+    `${target.neighborhood} 근처에서 편하게 이야기 나눌 동네 친구를 찾고 있어요.`,
+    `프로필 분위기가 좋아서 쪽지드려요. 부담 없이 ${primaryTag} 이야기부터 나눠봐요.`
+  ];
+}
+
+function getQuickReplies(target: NearbyProfile) {
+  const tag = target.tags[0] ?? "동네";
+
+  return [
+    "좋아요. 천천히 이야기해요.",
+    `${tag} 이야기 더 들어보고 싶어요.`,
+    "오늘은 앱 안에서 먼저 대화해볼게요."
+  ];
+}
+
+function genderLabel(gender: Gender) {
+  return genderOptions.find((option) => option.value === gender)?.label ?? "비공개";
+}
+
+const styles = StyleSheet.create({
+  appRoot: {
+    backgroundColor: colors.canvas,
+    flex: 1
+  },
+  avatar: {
+    alignItems: "center",
+    borderRadius: radius.pill,
+    justifyContent: "center"
+  },
+  avatarText: {
+    color: colors.white,
+    fontWeight: "800"
+  },
+  backendBand: {
+    alignItems: "center",
+    backgroundColor: colors.white,
+    borderColor: colors.line,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md
+  },
+  backendText: {
+    color: colors.mutedInk,
+    flex: 1,
+    fontSize: type.caption,
+    fontWeight: "700",
+    lineHeight: 18
+  },
+  actionHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.md,
+    marginBottom: spacing.md
+  },
+  actionRow: {
+    alignItems: "center",
+    backgroundColor: colors.white,
+    borderColor: colors.line,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.md,
+    minHeight: 52,
+    paddingHorizontal: spacing.lg
+  },
+  actionRowDanger: {
+    alignItems: "center",
+    backgroundColor: colors.danger,
+    borderRadius: radius.md,
+    flexDirection: "row",
+    gap: spacing.md,
+    minHeight: 52,
+    paddingHorizontal: spacing.lg
+  },
+  actionSheet: {
+    backgroundColor: colors.paper,
+    borderRadius: radius.lg,
+    gap: spacing.sm,
+    padding: spacing.lg,
+    width: "100%",
+    ...shadow
+  },
+  actionText: {
+    color: colors.ink,
+    fontSize: type.body,
+    fontWeight: "800"
+  },
+  actionTextDanger: {
+    color: colors.white,
+    fontSize: type.body,
+    fontWeight: "900"
+  },
+  actionTitle: {
+    color: colors.ink,
+    fontSize: type.h2,
+    fontWeight: "900"
+  },
+  brandLockup: {
+    alignItems: "center",
+    flex: 1,
+    flexDirection: "row",
+    gap: spacing.md
+  },
+  centerModalBackdrop: {
+    alignItems: "center",
+    backgroundColor: "rgba(28, 29, 31, 0.32)",
+    flex: 1,
+    justifyContent: "center",
+    padding: spacing.lg
+  },
+  chatHeader: {
+    alignItems: "center",
+    backgroundColor: colors.white,
+    borderBottomColor: colors.line,
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    gap: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md
+  },
+  chatScreen: {
+    flex: 1
+  },
+  chatStatusBand: {
+    alignItems: "center",
+    backgroundColor: colors.white,
+    borderBottomColor: colors.line,
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    minHeight: 62,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm
+  },
+  checkbox: {
+    alignItems: "center",
+    backgroundColor: colors.white,
+    borderColor: colors.line,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    height: 28,
+    justifyContent: "center",
+    width: 28
+  },
+  checkboxActive: {
+    backgroundColor: colors.teal,
+    borderColor: colors.teal
+  },
+  composer: {
+    alignItems: "flex-end",
+    backgroundColor: colors.white,
+    borderTopColor: colors.line,
+    borderTopWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    padding: spacing.md
+  },
+  composerInput: {
+    backgroundColor: colors.canvas,
+    borderRadius: radius.lg,
+    color: colors.ink,
+    flex: 1,
+    fontSize: type.body,
+    maxHeight: 96,
+    minHeight: 44,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md
+  },
+  disabledButton: {
+    opacity: 0.42
+  },
+  emptyBody: {
+    color: colors.mutedInk,
+    fontSize: type.body,
+    fontWeight: "600",
+    lineHeight: 23,
+    textAlign: "center"
+  },
+  emptyIcon: {
+    alignItems: "center",
+    backgroundColor: colors.tealSoft,
+    borderRadius: radius.pill,
+    height: 42,
+    justifyContent: "center",
+    marginTop: -18,
+    width: 42
+  },
+  emptyState: {
+    alignItems: "center",
+    backgroundColor: colors.white,
+    borderColor: colors.line,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    gap: spacing.md,
+    padding: spacing.xl
+  },
+  emptyTitle: {
+    color: colors.ink,
+    fontSize: type.h2,
+    fontWeight: "900",
+    textAlign: "center"
+  },
+  earnButton: {
+    alignItems: "center",
+    backgroundColor: colors.ink,
+    borderRadius: radius.pill,
+    flexDirection: "row",
+    gap: spacing.sm,
+    height: 52,
+    justifyContent: "center"
+  },
+  earnButtonText: {
+    color: colors.white,
+    fontSize: type.body,
+    fontWeight: "800"
+  },
+  characterCount: {
+    alignSelf: "flex-end",
+    color: colors.mutedInk,
+    fontSize: type.caption,
+    fontWeight: "700"
+  },
+  fill: {
+    flex: 1
+  },
+  filterChip: {
+    alignItems: "center",
+    backgroundColor: colors.white,
+    borderColor: colors.line,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    minHeight: 42,
+    justifyContent: "center",
+    paddingHorizontal: spacing.lg
+  },
+  filterChipActive: {
+    backgroundColor: colors.ink,
+    borderColor: colors.ink
+  },
+  filterRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm
+  },
+  filterText: {
+    color: colors.ink,
+    fontSize: type.caption,
+    fontWeight: "900"
+  },
+  filterTextActive: {
+    color: colors.white
+  },
+  header: {
+    alignItems: "center",
+    backgroundColor: colors.paper,
+    borderBottomColor: colors.line,
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md
+  },
+  headerTitle: {
+    color: colors.ink,
+    fontSize: type.h1,
+    fontWeight: "800"
+  },
+  iconButton: {
+    alignItems: "center",
+    backgroundColor: colors.white,
+    borderColor: colors.line,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    height: 48,
+    justifyContent: "center",
+    width: 48,
+    ...shadow
+  },
+  icebreakerChip: {
+    backgroundColor: colors.white,
+    borderColor: colors.line,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm
+  },
+  icebreakerList: {
+    gap: spacing.sm
+  },
+  icebreakerPanel: {
+    backgroundColor: colors.canvas,
+    borderRadius: radius.lg,
+    gap: spacing.sm,
+    padding: spacing.md
+  },
+  interestPanel: {
+    backgroundColor: colors.canvas,
+    borderRadius: radius.lg,
+    gap: spacing.sm,
+    padding: spacing.md
+  },
+  icebreakerText: {
+    color: colors.ink,
+    fontSize: type.caption,
+    fontWeight: "700",
+    lineHeight: 19
+  },
+  input: {
+    backgroundColor: colors.canvas,
+    borderColor: colors.line,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    color: colors.ink,
+    fontSize: type.body,
+    minHeight: 52,
+    paddingHorizontal: spacing.lg
+  },
+  kicker: {
+    color: colors.teal,
+    fontSize: type.caption,
+    fontWeight: "800",
+    letterSpacing: 0,
+    marginBottom: 2
+  },
+  locationBand: {
+    alignItems: "center",
+    backgroundColor: colors.white,
+    borderColor: colors.line,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.md,
+    padding: spacing.lg,
+    ...shadow
+  },
+  locationIcon: {
+    alignItems: "center",
+    backgroundColor: colors.tealSoft,
+    borderRadius: radius.pill,
+    height: 44,
+    justifyContent: "center",
+    width: 44
+  },
+  locationPermission: {
+    alignItems: "center",
+    backgroundColor: colors.tealSoft,
+    borderRadius: radius.lg,
+    flexDirection: "row",
+    gap: spacing.md,
+    minHeight: 68,
+    padding: spacing.lg
+  },
+  locationTitle: {
+    color: colors.ink,
+    fontSize: type.h2,
+    fontWeight: "800"
+  },
+  matchMeterFill: {
+    backgroundColor: colors.teal,
+    borderRadius: radius.pill,
+    height: "100%"
+  },
+  matchMeterTrack: {
+    backgroundColor: colors.tealSoft,
+    borderRadius: radius.pill,
+    flex: 1,
+    height: 7,
+    overflow: "hidden"
+  },
+  matchRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: 2
+  },
+  matchScore: {
+    color: colors.teal,
+    fontSize: 11,
+    fontWeight: "900",
+    minWidth: 58,
+    textAlign: "right"
+  },
+  messageBubble: {
+    borderRadius: radius.lg,
+    marginBottom: spacing.sm,
+    maxWidth: "82%",
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md
+  },
+  messageButton: {
+    alignItems: "center",
+    alignSelf: "center",
+    backgroundColor: colors.teal,
+    borderRadius: radius.pill,
+    height: 48,
+    justifyContent: "center",
+    width: 48
+  },
+  messageList: {
+    padding: spacing.lg
+  },
+  messageMine: {
+    alignSelf: "flex-end",
+    backgroundColor: colors.teal
+  },
+  messageOther: {
+    alignSelf: "flex-start",
+    backgroundColor: colors.white,
+    borderColor: colors.line,
+    borderWidth: 1
+  },
+  messageText: {
+    color: colors.ink,
+    fontSize: type.body,
+    lineHeight: 23
+  },
+  messageTextMine: {
+    color: colors.white
+  },
+  modalBackdrop: {
+    backgroundColor: "rgba(28, 29, 31, 0.32)",
+    flex: 1,
+    justifyContent: "flex-end"
+  },
+  modalHandle: {
+    alignSelf: "center",
+    backgroundColor: colors.line,
+    borderRadius: radius.pill,
+    height: 4,
+    marginBottom: spacing.lg,
+    width: 46
+  },
+  modalSheet: {
+    backgroundColor: colors.paper,
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    gap: spacing.md,
+    padding: spacing.lg,
+    paddingBottom: spacing.xxl
+  },
+  modalTitle: {
+    color: colors.ink,
+    fontSize: type.h1,
+    fontWeight: "900"
+  },
+  modalTitleCopy: {
+    flex: 1,
+    gap: spacing.xs
+  },
+  modalTitleRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between"
+  },
+  neighborBody: {
+    flex: 1,
+    gap: 5
+  },
+  neighborIntro: {
+    color: colors.ink,
+    fontSize: type.body,
+    lineHeight: 20
+  },
+  neighborMeta: {
+    color: colors.mutedInk,
+    fontSize: type.caption,
+    fontWeight: "600"
+  },
+  neighborName: {
+    color: colors.ink,
+    fontSize: type.h2,
+    fontWeight: "800"
+  },
+  neighborRow: {
+    backgroundColor: colors.white,
+    borderColor: colors.line,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.md,
+    padding: spacing.md
+  },
+  neighborTopLine: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm
+  },
+  panelCaption: {
+    color: colors.mutedInk,
+    fontSize: type.caption,
+    fontWeight: "600",
+    lineHeight: 17
+  },
+  panelTitle: {
+    color: colors.ink,
+    fontSize: type.body,
+    fontWeight: "800"
+  },
+  pendingBadge: {
+    backgroundColor: colors.yellowSoft,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6
+  },
+  pendingBadgeText: {
+    color: colors.ink,
+    fontSize: 11,
+    fontWeight: "900"
+  },
+  pendingActionButton: {
+    alignItems: "center",
+    backgroundColor: colors.teal,
+    borderRadius: radius.pill,
+    height: 40,
+    justifyContent: "center",
+    width: 40
+  },
+  pendingActionGhost: {
+    alignItems: "center",
+    backgroundColor: colors.canvas,
+    borderColor: colors.line,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    height: 40,
+    justifyContent: "center",
+    width: 40
+  },
+  pendingActions: {
+    flexDirection: "row",
+    gap: spacing.xs
+  },
+  pendingPanel: {
+    backgroundColor: colors.canvas,
+    borderBottomColor: colors.line,
+    borderBottomWidth: 1,
+    gap: spacing.sm,
+    padding: spacing.lg
+  },
+  pendingRow: {
+    alignItems: "center",
+    backgroundColor: colors.white,
+    borderColor: colors.line,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.md,
+    padding: spacing.md
+  },
+  pressed: {
+    opacity: 0.72
+  },
+  primaryButton: {
+    alignItems: "center",
+    backgroundColor: colors.teal,
+    borderRadius: radius.pill,
+    height: 54,
+    justifyContent: "center",
+    marginTop: spacing.sm
+  },
+  primaryButtonText: {
+    color: colors.white,
+    fontSize: type.body,
+    fontWeight: "800"
+  },
+  policyRow: {
+    alignItems: "center",
+    backgroundColor: colors.white,
+    borderColor: colors.line,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.md,
+    minHeight: 62,
+    padding: spacing.md
+  },
+  policyText: {
+    color: colors.ink,
+    flex: 1,
+    fontSize: type.caption,
+    fontWeight: "700",
+    lineHeight: 19
+  },
+  profileList: {
+    gap: spacing.md
+  },
+  quickReplyBar: {
+    backgroundColor: colors.white,
+    borderTopColor: colors.line,
+    borderTopWidth: 1,
+    paddingVertical: spacing.sm
+  },
+  quickReplyChip: {
+    backgroundColor: colors.tealSoft,
+    borderRadius: radius.pill,
+    minHeight: 40,
+    justifyContent: "center",
+    paddingHorizontal: spacing.md
+  },
+  quickReplyContent: {
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md
+  },
+  quickReplyText: {
+    color: colors.teal,
+    fontSize: type.caption,
+    fontWeight: "800"
+  },
+  profileName: {
+    color: colors.ink,
+    fontSize: type.h1,
+    fontWeight: "900"
+  },
+  profileSummary: {
+    alignItems: "center",
+    backgroundColor: colors.white,
+    borderColor: colors.line,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.md,
+    padding: spacing.lg
+  },
+  radiusPanel: {
+    alignItems: "center",
+    backgroundColor: colors.tealSoft,
+    borderRadius: radius.lg,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    padding: spacing.lg
+  },
+  recommendationBand: {
+    backgroundColor: colors.white,
+    borderColor: colors.line,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    gap: spacing.sm,
+    padding: spacing.md
+  },
+  recommendationMetric: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.md,
+    minHeight: 52
+  },
+  recommendReason: {
+    color: colors.teal,
+    fontSize: 11,
+    fontWeight: "800"
+  },
+  metricPill: {
+    backgroundColor: colors.ink,
+    borderRadius: radius.pill,
+    color: colors.white,
+    fontSize: 11,
+    fontWeight: "900",
+    overflow: "hidden",
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 5
+  },
+  radiusStepper: {
+    alignItems: "center",
+    backgroundColor: colors.white,
+    borderRadius: radius.pill,
+    flexDirection: "row",
+    gap: spacing.sm,
+    padding: 4
+  },
+  radiusValue: {
+    color: colors.ink,
+    fontSize: type.body,
+    fontWeight: "900",
+    minWidth: 18,
+    textAlign: "center"
+  },
+  rewardCaption: {
+    color: colors.ink,
+    fontSize: type.body,
+    lineHeight: 21
+  },
+  rewardDot: {
+    borderRadius: radius.pill,
+    height: 14,
+    width: 14
+  },
+  rewardHero: {
+    alignItems: "center",
+    backgroundColor: colors.yellowSoft,
+    borderColor: "#F1D38A",
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.md,
+    padding: spacing.lg
+  },
+  rewardIcon: {
+    alignItems: "center",
+    backgroundColor: colors.yellow,
+    borderRadius: radius.pill,
+    height: 50,
+    justifyContent: "center",
+    width: 50
+  },
+  rewardList: {
+    gap: spacing.md
+  },
+  rewardRow: {
+    alignItems: "center",
+    backgroundColor: colors.white,
+    borderColor: colors.line,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.md,
+    padding: spacing.lg
+  },
+  rewardTitle: {
+    color: colors.ink,
+    fontSize: type.title,
+    fontWeight: "900"
+  },
+  rewardUseButton: {
+    alignItems: "center",
+    backgroundColor: colors.ink,
+    borderRadius: radius.pill,
+    flexDirection: "row",
+    gap: 2,
+    height: 48,
+    justifyContent: "center",
+    width: 58
+  },
+  rewardUseText: {
+    color: colors.white,
+    fontSize: type.body,
+    fontWeight: "900"
+  },
+  requestHelp: {
+    color: colors.mutedInk,
+    fontSize: type.body,
+    fontWeight: "600",
+    lineHeight: 23
+  },
+  requestSafetyBand: {
+    alignItems: "center",
+    backgroundColor: colors.tealSoft,
+    borderRadius: radius.lg,
+    flexDirection: "row",
+    gap: spacing.sm,
+    padding: spacing.md
+  },
+  requestSafetyText: {
+    color: colors.ink,
+    flex: 1,
+    fontSize: type.caption,
+    fontWeight: "800",
+    lineHeight: 19
+  },
+  requestInput: {
+    backgroundColor: colors.white,
+    borderColor: colors.line,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    color: colors.ink,
+    fontSize: type.body,
+    minHeight: 108,
+    padding: spacing.lg,
+    textAlignVertical: "top"
+  },
+  requestTitle: {
+    alignItems: "center",
+    flex: 1,
+    flexDirection: "row",
+    gap: spacing.md
+  },
+  safeArea: {
+    backgroundColor: colors.paper,
+    flex: 1
+  },
+  safetyBand: {
+    alignItems: "center",
+    backgroundColor: colors.lilacSoft,
+    borderRadius: radius.lg,
+    flexDirection: "row",
+    gap: spacing.md,
+    padding: spacing.lg
+  },
+  screenScroll: {
+    gap: spacing.lg,
+    padding: spacing.lg,
+    paddingBottom: 112
+  },
+  sectionEyebrow: {
+    color: colors.mutedInk,
+    fontSize: type.caption,
+    fontWeight: "800"
+  },
+  sectionHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between"
+  },
+  sectionTitle: {
+    color: colors.ink,
+    fontSize: type.h2,
+    fontWeight: "900"
+  },
+  sectionValue: {
+    color: colors.teal,
+    fontSize: type.caption,
+    fontWeight: "900"
+  },
+  segmentButton: {
+    alignItems: "center",
+    backgroundColor: colors.white,
+    borderColor: colors.line,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    flexGrow: 1,
+    minHeight: 48,
+    justifyContent: "center",
+    paddingHorizontal: spacing.md
+  },
+  segmentButtonActive: {
+    backgroundColor: colors.ink,
+    borderColor: colors.ink
+  },
+  segmentGroup: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm
+  },
+  segmentText: {
+    color: colors.ink,
+    fontSize: type.caption,
+    fontWeight: "800"
+  },
+  segmentTextActive: {
+    color: colors.white
+  },
+  sendButton: {
+    alignItems: "center",
+    backgroundColor: colors.teal,
+    borderRadius: radius.pill,
+    height: 48,
+    justifyContent: "center",
+    width: 48
+  },
+  secondaryButton: {
+    alignItems: "center",
+    backgroundColor: colors.tealSoft,
+    borderRadius: radius.pill,
+    justifyContent: "center",
+    minHeight: 48,
+    paddingHorizontal: spacing.lg
+  },
+  secondaryButtonText: {
+    color: colors.teal,
+    fontSize: type.body,
+    fontWeight: "900"
+  },
+  settingIcon: {
+    alignItems: "center",
+    backgroundColor: colors.tealSoft,
+    borderRadius: radius.pill,
+    height: 36,
+    justifyContent: "center",
+    width: 36
+  },
+  settingIconDanger: {
+    backgroundColor: "#FCE8E8"
+  },
+  settingLabel: {
+    color: colors.ink,
+    flex: 1,
+    fontSize: type.body,
+    fontWeight: "800"
+  },
+  settingRow: {
+    alignItems: "center",
+    backgroundColor: colors.white,
+    borderBottomColor: colors.line,
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    gap: spacing.md,
+    minHeight: 58,
+    paddingHorizontal: spacing.lg
+  },
+  settingValue: {
+    color: colors.mutedInk,
+    fontSize: type.caption,
+    fontWeight: "800",
+    maxWidth: "42%",
+    textAlign: "right"
+  },
+  settingsGroup: {
+    borderColor: colors.line,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    overflow: "hidden"
+  },
+  smallIconButton: {
+    alignItems: "center",
+    backgroundColor: colors.white,
+    borderColor: colors.line,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    height: 48,
+    justifyContent: "center",
+    width: 48
+  },
+  stepButton: {
+    alignItems: "center",
+    borderRadius: radius.pill,
+    height: 44,
+    justifyContent: "center",
+    width: 44
+  },
+  tabBadge: {
+    backgroundColor: colors.coral,
+    borderColor: colors.white,
+    borderRadius: radius.pill,
+    borderWidth: 2,
+    height: 10,
+    position: "absolute",
+    right: 7,
+    top: 7,
+    width: 10
+  },
+  tabBar: {
+    alignItems: "center",
+    backgroundColor: colors.white,
+    borderColor: colors.line,
+    borderRadius: 26,
+    borderWidth: 1,
+    bottom: spacing.lg,
+    flexDirection: "row",
+    gap: spacing.xs,
+    left: spacing.lg,
+    padding: spacing.sm,
+    position: "absolute",
+    right: spacing.lg,
+    ...shadow
+  },
+  tabIconWrap: {
+    alignItems: "center",
+    borderRadius: radius.pill,
+    height: 36,
+    justifyContent: "center",
+    position: "relative",
+    width: 48
+  },
+  tabIconWrapActive: {
+    backgroundColor: colors.ink
+  },
+  tabItem: {
+    alignItems: "center",
+    flex: 1,
+    gap: 3,
+    minHeight: 58,
+    justifyContent: "center"
+  },
+  tabLabel: {
+    color: colors.mutedInk,
+    fontSize: 11,
+    fontWeight: "800"
+  },
+  tabLabelActive: {
+    color: colors.ink
+  },
+  tag: {
+    backgroundColor: colors.canvas,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 5
+  },
+  tagRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.xs,
+    marginTop: 2
+  },
+  tagText: {
+    color: colors.mutedInk,
+    fontSize: 11,
+    fontWeight: "800"
+  },
+  threadChip: {
+    alignItems: "center",
+    backgroundColor: colors.white,
+    borderColor: colors.line,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    minHeight: 48,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+    position: "relative"
+  },
+  threadChipActive: {
+    backgroundColor: colors.tealSoft,
+    borderColor: colors.teal
+  },
+  threadChipText: {
+    color: colors.ink,
+    fontSize: type.caption,
+    fontWeight: "800",
+    paddingRight: spacing.xs
+  },
+  threadRail: {
+    backgroundColor: colors.canvas,
+    borderBottomColor: colors.line,
+    borderBottomWidth: 1,
+    minHeight: 70
+  },
+  threadRailContent: {
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md
+  },
+  unreadDot: {
+    backgroundColor: colors.coral,
+    borderColor: colors.white,
+    borderRadius: radius.pill,
+    borderWidth: 2,
+    height: 12,
+    position: "absolute",
+    right: 5,
+    top: 4,
+    width: 12
+  },
+  verifiedBadge: {
+    alignItems: "center",
+    backgroundColor: colors.tealSoft,
+    borderRadius: radius.pill,
+    flexDirection: "row",
+    gap: 3,
+    paddingHorizontal: 7,
+    paddingVertical: 3
+  },
+  verifiedText: {
+    color: colors.teal,
+    fontSize: 10,
+    fontWeight: "900"
+  }
+});
