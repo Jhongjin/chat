@@ -45,6 +45,7 @@ import {
 } from "./services/chatBackend";
 import { requestNeighborhoodLocation } from "./services/location";
 import { requestPushRegistration } from "./services/notifications";
+import { showRewardedAd } from "./services/rewardedAds";
 import { colors, radius, shadow, spacing, type } from "./theme";
 import type { ChatMessage, ChatThread, Gender, NearbyProfile, RewardPerk } from "./types";
 import { clampRadius, formatDistance, sortByDistance } from "./utils/distance";
@@ -774,14 +775,23 @@ export function AppShell() {
     Alert.alert("혜택 적용", `${perk.title} 혜택이 적용되었습니다.`);
   }
 
-  function handleEarnCredit() {
+  async function handleEarnCredit() {
     if (earnedToday >= 3) {
       Alert.alert("오늘은 충분해요", "리워드 광고 보상은 하루 3회까지만 받을 수 있습니다.");
       return;
     }
 
     setAdLoading(true);
-    setTimeout(async () => {
+
+    const ad = await showRewardedAd();
+
+    if (!ad.ok) {
+      setAdLoading(false);
+      Alert.alert("광고 확인 실패", ad.error);
+      return;
+    }
+
+    try {
       if (canUseBackend()) {
         const reward = await claimAdReward();
 
@@ -796,12 +806,21 @@ export function AppShell() {
         setEarnedToday(reward.data.earnedToday);
         setBackendNotice("Supabase 리워드 기록 완료");
       } else {
-        setRewardCredits((current) => current + 1);
+        setRewardCredits((current) => current + Math.max(1, ad.reward.amount || 1));
         setEarnedToday((current) => current + 1);
       }
+
       setAdLoading(false);
-      Alert.alert("보상 지급", "광고 시청이 확인되어 1 크레딧을 지급했어요.");
-    }, 900);
+      Alert.alert(
+        "보상 지급",
+        ad.source === "admob"
+          ? "광고 시청이 확인되어 1 크레딧을 지급했어요."
+          : "개발 프리뷰 보상으로 1 크레딧을 지급했어요."
+      );
+    } catch (error) {
+      setAdLoading(false);
+      Alert.alert("보상 지급 실패", error instanceof Error ? error.message : "보상 지급 중 문제가 발생했어요.");
+    }
   }
 
   return (
@@ -1451,7 +1470,7 @@ function RewardsScreen({
         <Text style={styles.earnButtonText}>{isAdLoading ? "광고 확인 중" : "리워드 광고 보고 1 크레딧 받기"}</Text>
       </Pressable>
 
-      <SectionHeader title="사용 가능한 혜택" value="AdMob 연결 예정" />
+      <SectionHeader title="사용 가능한 혜택" value="AdMob 준비됨" />
 
       <View style={styles.rewardList}>
         {rewardPerks.map((perk) => (
