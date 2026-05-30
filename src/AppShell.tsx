@@ -77,6 +77,8 @@ const interestFilters = ["전체", "카페", "산책", "러닝", "맛집", "책"
 const profileInterestOptions = interestFilters.filter((filter) => filter !== "전체");
 const baseDailyMessageRequests = 3;
 const favoriteThreadsStorageKey = "dongneon.favoriteThreadIds";
+const quietHoursStorageKey = "dongneon.quietHoursEnabled";
+const quietHoursLabel = "23:00-08:00";
 
 export function AppShell() {
   const [activeTab, setActiveTab] = useState<TabKey>("discover");
@@ -101,6 +103,8 @@ export function AppShell() {
   const [blockedProfileIds, setBlockedProfileIds] = useState<string[]>([]);
   const [favoriteThreadIds, setFavoriteThreadIds] = useState<string[]>([]);
   const [favoriteThreadIdsLoaded, setFavoriteThreadIdsLoaded] = useState(false);
+  const [quietHoursEnabled, setQuietHoursEnabled] = useState(true);
+  const [quietHoursLoaded, setQuietHoursLoaded] = useState(false);
   const [messageRequestTarget, setMessageRequestTarget] = useState<NearbyProfile | null>(null);
   const [messageRequestText, setMessageRequestText] = useState("");
   const [safetyThread, setSafetyThread] = useState<ChatThread | null>(null);
@@ -195,6 +199,34 @@ export function AppShell() {
 
     void AsyncStorage.setItem(favoriteThreadsStorageKey, JSON.stringify(favoriteThreadIds));
   }, [favoriteThreadIds, favoriteThreadIdsLoaded]);
+
+  useEffect(() => {
+    let active = true;
+
+    void AsyncStorage.getItem(quietHoursStorageKey).then((value) => {
+      if (!active) {
+        return;
+      }
+
+      if (value === "true" || value === "false") {
+        setQuietHoursEnabled(value === "true");
+      }
+
+      setQuietHoursLoaded(true);
+    });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!quietHoursLoaded) {
+      return;
+    }
+
+    void AsyncStorage.setItem(quietHoursStorageKey, String(quietHoursEnabled));
+  }, [quietHoursEnabled, quietHoursLoaded]);
 
   useEffect(() => {
     if (isOnboarded && canUseBackend()) {
@@ -486,7 +518,7 @@ export function AppShell() {
     }
 
     if (!canUseBackend()) {
-      setPushStatus("기기 알림 준비 완료");
+      setPushStatus(quietHoursEnabled ? "기기 알림 준비 완료 · 조용한 시간 적용" : "기기 알림 준비 완료");
       return;
     }
 
@@ -501,7 +533,11 @@ export function AppShell() {
       return;
     }
 
-    setPushStatus("쪽지 알림 준비 완료");
+    setPushStatus(quietHoursEnabled ? "쪽지 알림 준비 완료 · 조용한 시간 적용" : "쪽지 알림 준비 완료");
+  }
+
+  function handleToggleQuietHours() {
+    setQuietHoursEnabled((current) => !current);
   }
 
   function handleRequestAccountDeletion() {
@@ -966,9 +1002,11 @@ export function AppShell() {
             onRequestAccountDeletion={handleRequestAccountDeletion}
             profile={profile}
             pushStatus={pushStatus}
+            quietHoursEnabled={quietHoursEnabled}
             radiusKm={radiusKm}
             selectedInterests={selectedInterests}
             onToggleDiscoverable={handleToggleDiscoverable}
+            onToggleQuietHours={handleToggleQuietHours}
             onOpenOnboarding={() => setOnboardingOpen(true)}
           />
         ) : null}
@@ -1606,8 +1644,10 @@ function ProfileScreen({
   onOpenOnboarding,
   onRequestAccountDeletion,
   onToggleDiscoverable,
+  onToggleQuietHours,
   profile,
   pushStatus,
+  quietHoursEnabled,
   radiusKm,
   selectedInterests
 }: {
@@ -1619,8 +1659,10 @@ function ProfileScreen({
   onOpenOnboarding: () => void;
   onRequestAccountDeletion: () => void;
   onToggleDiscoverable: () => void | Promise<void>;
+  onToggleQuietHours: () => void;
   profile: OnboardingProfile;
   pushStatus: string;
+  quietHoursEnabled: boolean;
   radiusKm: number;
   selectedInterests: string[];
 }) {
@@ -1658,6 +1700,12 @@ function ProfileScreen({
           value={selectedInterests.length ? selectedInterests.join(", ") : "미설정"}
         />
         <SettingRow icon="notifications" label="쪽지 알림" onPress={onEnablePush} value={pushStatus} />
+        <SettingRow
+          icon={quietHoursEnabled ? "moon" : "moon-outline"}
+          label="조용한 시간"
+          onPress={onToggleQuietHours}
+          value={quietHoursEnabled ? `${quietHoursLabel} 켜짐` : "꺼짐"}
+        />
         <SettingRow
           icon="star"
           label="즐겨찾기 대화"
