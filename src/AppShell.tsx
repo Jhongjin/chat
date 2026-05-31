@@ -31,6 +31,7 @@ import {
   fetchMessageRequests,
   fetchNearbyProfiles,
   fetchPreferenceState,
+  fetchReportHistory,
   fetchRewardSummary,
   markConversationRead,
   muteConversationUntil,
@@ -46,7 +47,8 @@ import {
   unblockProfile,
   updateMyLocation,
   type LocationDraft,
-  type MessageRequestItem
+  type MessageRequestItem,
+  type ReportHistoryItem
 } from "./services/chatBackend";
 import { requestNeighborhoodLocation } from "./services/location";
 import { requestPushRegistration } from "./services/notifications";
@@ -110,6 +112,7 @@ export function AppShell() {
   const [blockedProfileIds, setBlockedProfileIds] = useState<string[]>([]);
   const [blockedProfiles, setBlockedProfiles] = useState<NearbyProfile[]>([]);
   const [blockedProfilesLoaded, setBlockedProfilesLoaded] = useState(false);
+  const [reportHistory, setReportHistory] = useState<ReportHistoryItem[]>([]);
   const [favoriteThreadIds, setFavoriteThreadIds] = useState<string[]>([]);
   const [favoriteThreadIdsLoaded, setFavoriteThreadIdsLoaded] = useState(false);
   const [quietHoursEnabled, setQuietHoursEnabled] = useState(true);
@@ -280,6 +283,7 @@ export function AppShell() {
     if (isOnboarded && canUseBackend()) {
       void syncChatState();
       void syncBlockedProfiles();
+      void syncReportHistory();
       void syncPreferenceState();
       void syncRewardSummary();
     }
@@ -380,6 +384,21 @@ export function AppShell() {
 
     setBlockedProfiles(blocked.data);
     setBlockedProfileIds(blocked.data.map((profileItem) => profileItem.id));
+  }
+
+  async function syncReportHistory() {
+    if (!canUseBackend()) {
+      return;
+    }
+
+    const reports = await fetchReportHistory();
+
+    if (!reports.ok) {
+      setBackendNotice(`Supabase 신고 내역 동기화 필요: ${reports.error}`);
+      return;
+    }
+
+    setReportHistory(reports.data);
   }
 
   async function syncPreferenceState() {
@@ -674,6 +693,7 @@ export function AppShell() {
     setRemoteProfiles([]);
     setBlockedProfiles([]);
     setBlockedProfileIds([]);
+    setReportHistory([]);
     setPendingRequests([]);
     setThreads([]);
     setFavoriteThreadIds([]);
@@ -940,6 +960,20 @@ export function AppShell() {
         Alert.alert("신고 저장 실패", reported.error);
         return;
       }
+
+      await syncReportHistory();
+    } else if (safetyThread) {
+      setReportHistory((current) => [
+        {
+          createdAt: new Date().toISOString(),
+          id: `local-report-${Date.now()}`,
+          reason,
+          status: "open",
+          targetName: safetyThread.participant.name,
+          targetUserId: safetyThread.participant.id
+        },
+        ...current
+      ]);
     }
 
     setSafetyThread(null);
@@ -1021,6 +1055,7 @@ export function AppShell() {
         participantName: thread.participant.name,
         unreadCount: thread.unreadCount
       })),
+      reports: reportHistory,
       deletionStatus,
       discovery: {
         discoverable: isDiscoverable,
@@ -1251,6 +1286,7 @@ export function AppShell() {
           blockedProfiles={blockedProfiles}
           isOpen={isSafetySettingsOpen}
           onClose={() => setSafetySettingsOpen(false)}
+          reportHistory={reportHistory}
           onUnblock={handleUnblockProfile}
         />
       </KeyboardAvoidingView>
@@ -2341,11 +2377,13 @@ function SafetySettingsModal({
   blockedProfiles,
   isOpen,
   onClose,
+  reportHistory,
   onUnblock
 }: {
   blockedProfiles: NearbyProfile[];
   isOpen: boolean;
   onClose: () => void;
+  reportHistory: ReportHistoryItem[];
   onUnblock: (profileId: string) => void;
 }) {
   return (
@@ -2385,6 +2423,35 @@ function SafetySettingsModal({
               <Ionicons color={colors.teal} name="shield-checkmark" size={22} />
               <Text style={styles.panelTitle}>차단한 사람이 없어요</Text>
               <Text style={styles.panelCaption}>불편한 대화는 언제든 신고하거나 추천에서 숨길 수 있습니다.</Text>
+            </View>
+          )}
+
+          <View style={styles.safetyDivider} />
+
+          <SectionHeader title="신고 내역" value={`${reportHistory.length}건`} />
+
+          {reportHistory.length ? (
+            reportHistory.slice(0, 5).map((report) => (
+              <View key={report.id} style={styles.blockedProfileRow}>
+                <View style={styles.reportIcon}>
+                  <Ionicons color={colors.danger} name="flag" size={18} />
+                </View>
+                <View style={styles.fill}>
+                  <Text style={styles.panelTitle}>{report.targetName}</Text>
+                  <Text style={styles.panelCaption}>
+                    {report.reason} · {formatReportDate(report.createdAt)}
+                  </Text>
+                </View>
+                <View style={styles.pendingBadge}>
+                  <Text style={styles.pendingBadgeText}>{reportStatusLabel(report.status)}</Text>
+                </View>
+              </View>
+            ))
+          ) : (
+            <View style={styles.safetyEmptyState}>
+              <Ionicons color={colors.mutedInk} name="document-text" size={22} />
+              <Text style={styles.panelTitle}>접수한 신고가 없어요</Text>
+              <Text style={styles.panelCaption}>신고가 접수되면 검토 상태를 이곳에서 확인할 수 있습니다.</Text>
             </View>
           )}
 
@@ -2604,6 +2671,30 @@ function formatDiscoveryPause(pauseUntil: string | null) {
   const minute = String(until.getMinutes()).padStart(2, "0");
 
   return `${until.getMonth() + 1}/${until.getDate()} ${hour}:${minute}까지`;
+}
+
+function formatReportDate(createdAt: string) {
+  const date = new Date(createdAt);
+
+  if (Number.isNaN(date.getTime())) {
+    return "날짜 확인 중";
+  }
+
+  return `${date.getMonth() + 1}/${date.getDate()}`;
+}
+
+function reportStatusLabel(status: ReportHistoryItem["status"]) {
+  switch (status) {
+    case "reviewing":
+      return "검토 중";
+    case "resolved":
+      return "처리됨";
+    case "dismissed":
+      return "종결";
+    case "open":
+    default:
+      return "접수";
+  }
 }
 
 const styles = StyleSheet.create({
@@ -3376,6 +3467,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: spacing.md
   },
+  reportIcon: {
+    alignItems: "center",
+    backgroundColor: "#FCE8E8",
+    borderRadius: radius.pill,
+    height: 38,
+    justifyContent: "center",
+    width: 38
+  },
   safeArea: {
     backgroundColor: colors.paper,
     flex: 1
@@ -3396,6 +3495,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: spacing.sm,
     padding: spacing.lg
+  },
+  safetyDivider: {
+    backgroundColor: colors.line,
+    height: 1,
+    marginVertical: spacing.xs
   },
   screenScroll: {
     gap: spacing.lg,

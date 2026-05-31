@@ -35,6 +35,15 @@ export type AccountDeletionState = {
   status: string;
 };
 
+export type ReportHistoryItem = {
+  createdAt: string;
+  id: string;
+  reason: string;
+  status: "dismissed" | "open" | "resolved" | "reviewing";
+  targetName: string;
+  targetUserId: string | null;
+};
+
 type NearbyProfileRow = {
   user_id: string;
   display_name: string;
@@ -101,6 +110,15 @@ type RewardSummaryRow = {
 type AccountDeletionRow = {
   requested_at: string;
   status: string;
+};
+
+type ReportHistoryRow = {
+  created_at: string;
+  reason: string;
+  report_id: string;
+  status: ReportHistoryItem["status"];
+  target_display_name: string | null;
+  target_user_id: string | null;
 };
 
 export type MessageRequestItem = {
@@ -706,6 +724,36 @@ export async function fetchBlockedProfiles(): Promise<BackendResult<NearbyProfil
   return {
     ok: true,
     data: ((data ?? []) as NearbyProfileRow[]).map(toNearbyProfile)
+  };
+}
+
+export async function fetchReportHistory(): Promise<BackendResult<ReportHistoryItem[]>> {
+  if (!supabase) {
+    return { ok: false, error: "Supabase is not configured." };
+  }
+
+  const session = await ensureAnonymousSession();
+
+  if (!session.ok) {
+    return { ok: false, error: session.error };
+  }
+
+  const { data, error } = await supabase.rpc("my_report_history");
+
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+
+  return {
+    ok: true,
+    data: ((data ?? []) as ReportHistoryRow[]).map((row) => ({
+      createdAt: row.created_at,
+      id: row.report_id,
+      reason: row.reason,
+      status: row.status,
+      targetName: row.target_display_name ?? "알 수 없는 사용자",
+      targetUserId: row.target_user_id
+    }))
   };
 }
 

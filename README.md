@@ -8,6 +8,7 @@
 - 5km 이내 근처 친구 탐색 UI
 - 첫 쪽지와 1:1 채팅 MVP 화면
 - 신고/차단, 차단 목록 확인과 차단 해제
+- 신고 내역과 검토 상태 확인
 - 대화 즐겨찾기와 조용한 시간 알림 설정
 - 대화별 알림 끄기
 - 내 동네 일시 숨김
@@ -64,6 +65,7 @@ EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID=
 - [푸시 알림 작업 큐](./supabase/migrations/009_notification_jobs.sql)
 - [푸시 알림 워커 RPC](./supabase/migrations/010_notification_job_claims.sql)
 - [대화별 알림 끄기 RPC](./supabase/migrations/011_conversation_mute.sql)
+- [신고 내역 조회 RPC](./supabase/migrations/012_report_history.sql)
 
 ## 출시 전 필수 결정
 

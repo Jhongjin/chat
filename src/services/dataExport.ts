@@ -9,6 +9,14 @@ export type UserDataExportPayload = {
     mutedUntil: string | null;
     messages: Array<{ authorId: string; body: string; createdAt: string; id: string }>;
   }>;
+  reports: Array<{
+    createdAt: string;
+    id: string;
+    reason: string;
+    status: string;
+    targetName: string;
+    targetUserId: string | null;
+  }>;
   deletionStatus: string;
   discovery: {
     discoverable: boolean;
