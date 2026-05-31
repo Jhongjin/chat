@@ -57,6 +57,7 @@ EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID=
 - [신고 검수 운영](./docs/moderation-operations.md)
 - [AdMob SSV 리워드 검증](./docs/admob-ssv.md)
 - [Supabase 연결 설정](./docs/supabase-setup.md)
+- [라이브 Supabase 적용 체크리스트](./docs/live-supabase-rollout.md)
 - [Supabase 초기 스키마](./supabase/migrations/001_initial_schema.sql)
 - [쪽지 요청 RPC](./supabase/migrations/002_chat_flow_functions.sql)
 - [대화/실시간 메시지 RPC](./supabase/migrations/003_conversation_runtime.sql)

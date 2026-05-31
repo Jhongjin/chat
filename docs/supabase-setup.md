@@ -31,6 +31,8 @@ Supabase Dashboard → Authentication → Providers에서 Anonymous sign-ins를 
 
 Supabase SQL Editor에서 아래 파일을 순서대로 실행한다.
 
+운영 적용 순서와 확인 쿼리는 [라이브 Supabase 적용 체크리스트](./live-supabase-rollout.md)를 기준으로 다시 확인한다.
+
 1. `supabase/migrations/001_initial_schema.sql`
 2. `supabase/migrations/002_chat_flow_functions.sql`
 3. `supabase/migrations/003_conversation_runtime.sql`
