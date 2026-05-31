@@ -12,6 +12,8 @@ const allowedEvents = new Set([
   "data_export_started",
   "discovery_pause_disabled",
   "discovery_pause_enabled",
+  "message_hidden",
+  "message_reported",
   "message_request_sent",
   "message_sent",
   "onboarding_completed",

@@ -25,6 +25,7 @@ export type UserDataExportPayload = {
     selectedInterests: string[];
   };
   favoriteThreadIds: string[];
+  hiddenMessageIds: string[];
   profile: {
     age: string;
     gender: string;

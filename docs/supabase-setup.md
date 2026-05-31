@@ -46,6 +46,7 @@ Supabase SQL Editor에서 아래 파일을 순서대로 실행한다.
 13. `supabase/migrations/013_client_events.sql`
 14. `supabase/migrations/014_admin_moderation_tools.sql`
 15. `supabase/migrations/015_ad_reward_verification.sql`
+16. `supabase/migrations/016_message_report_rpc.sql`
 
 적용 후 앱에서 가능한 흐름:
 
@@ -72,6 +73,7 @@ Supabase SQL Editor에서 아래 파일을 순서대로 실행한다.
 - 최소 제품 지표 이벤트 기록
 - service role 전용 신고 큐 조회, 신고 상태 변경, 계정 제재/복구
 - AdMob SSV 콜백 검증과 리워드 중복 지급 방지
+- 대화 참여자만 가능한 메시지 단위 신고
 
 ## 4. 운영 주의
 

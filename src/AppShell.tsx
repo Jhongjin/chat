@@ -38,6 +38,7 @@ import {
   pauseDiscoveryUntil,
   prepareAdRewardAttempt,
   registerPushToken,
+  reportMessage,
   reportProfile,
   requestAccountDeletion,
   saveDiscoveryPreferences,
@@ -87,8 +88,14 @@ const profileInterestOptions = interestFilters.filter((filter) => filter !== "�
 const baseDailyMessageRequests = 3;
 const blockedProfilesStorageKey = "dongneon.blockedProfiles";
 const favoriteThreadsStorageKey = "dongneon.favoriteThreadIds";
+const hiddenMessageIdsStorageKey = "dongneon.hiddenMessageIds";
 const quietHoursStorageKey = "dongneon.quietHoursEnabled";
 const quietHoursLabel = "23:00-08:00";
+
+type MessageSafetyTarget = {
+  message: ChatMessage;
+  thread: ChatThread;
+};
 
 export function AppShell() {
   const [activeTab, setActiveTab] = useState<TabKey>("discover");
@@ -117,12 +124,15 @@ export function AppShell() {
   const [reportHistory, setReportHistory] = useState<ReportHistoryItem[]>([]);
   const [favoriteThreadIds, setFavoriteThreadIds] = useState<string[]>([]);
   const [favoriteThreadIdsLoaded, setFavoriteThreadIdsLoaded] = useState(false);
+  const [hiddenMessageIds, setHiddenMessageIds] = useState<string[]>([]);
+  const [hiddenMessageIdsLoaded, setHiddenMessageIdsLoaded] = useState(false);
   const [quietHoursEnabled, setQuietHoursEnabled] = useState(true);
   const [quietHoursLoaded, setQuietHoursLoaded] = useState(false);
   const [messageRequestTarget, setMessageRequestTarget] = useState<NearbyProfile | null>(null);
   const [messageRequestText, setMessageRequestText] = useState("");
   const [isSafetySettingsOpen, setSafetySettingsOpen] = useState(false);
   const [safetyThread, setSafetyThread] = useState<ChatThread | null>(null);
+  const [messageSafetyTarget, setMessageSafetyTarget] = useState<MessageSafetyTarget | null>(null);
   const [lastLocation, setLastLocation] = useState<LocationDraft | null>(null);
   const [remoteProfiles, setRemoteProfiles] = useState<NearbyProfile[] | null>(null);
   const [backendNotice, setBackendNotice] = useState(
@@ -252,6 +262,39 @@ export function AppShell() {
 
     void AsyncStorage.setItem(favoriteThreadsStorageKey, JSON.stringify(favoriteThreadIds));
   }, [favoriteThreadIds, favoriteThreadIdsLoaded]);
+
+  useEffect(() => {
+    let active = true;
+
+    void AsyncStorage.getItem(hiddenMessageIdsStorageKey).then((value) => {
+      if (!active) {
+        return;
+      }
+
+      try {
+        const parsed = value ? JSON.parse(value) : [];
+        if (Array.isArray(parsed)) {
+          setHiddenMessageIds(parsed.filter((item): item is string => typeof item === "string"));
+        }
+      } catch {
+        setHiddenMessageIds([]);
+      } finally {
+        setHiddenMessageIdsLoaded(true);
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hiddenMessageIdsLoaded) {
+      return;
+    }
+
+    void AsyncStorage.setItem(hiddenMessageIdsStorageKey, JSON.stringify(hiddenMessageIds));
+  }, [hiddenMessageIds, hiddenMessageIdsLoaded]);
 
   useEffect(() => {
     let active = true;
@@ -1007,6 +1050,58 @@ export function AppShell() {
     Alert.alert("신고가 접수됐어요", `${reason} 사유로 운영 검토 큐에 등록됩니다.`);
   }
 
+  function handleHideMessage(threadId: string, messageId: string) {
+    setHiddenMessageIds((current) => (current.includes(messageId) ? current : [messageId, ...current]));
+    setMessageSafetyTarget(null);
+    void trackEvent("message_hidden", {
+      threadId
+    });
+    Alert.alert("메시지를 숨겼어요", "내 화면에서만 숨겨지며, 신고 없이 상대에게 알림이 가지 않습니다.");
+  }
+
+  async function handleReportMessage(reason: string) {
+    const target = messageSafetyTarget;
+
+    if (!target) {
+      return;
+    }
+
+    if (canUseBackend() && isUuid(target.message.id)) {
+      setBackendLoading(true);
+      const reported = await reportMessage(target.message.id, reason, target.message.body);
+      setBackendLoading(false);
+
+      if (!reported.ok) {
+        setBackendNotice(`Supabase 메시지 신고 저장 필요: ${reported.error}`);
+        Alert.alert("메시지 신고 실패", reported.error);
+        return;
+      }
+
+      await syncReportHistory();
+    } else {
+      setReportHistory((current) => [
+        {
+          createdAt: new Date().toISOString(),
+          id: `local-message-report-${Date.now()}`,
+          reason: `메시지: ${reason}`,
+          status: "open",
+          targetName: target.thread.participant.name,
+          targetUserId: target.thread.participant.id
+        },
+        ...current
+      ]);
+    }
+
+    setHiddenMessageIds((current) =>
+      current.includes(target.message.id) ? current : [target.message.id, ...current]
+    );
+    setMessageSafetyTarget(null);
+    void trackEvent("message_reported", {
+      reason
+    });
+    Alert.alert("메시지 신고가 접수됐어요", "해당 메시지는 내 화면에서 숨기고 운영 검토 큐에 등록했습니다.");
+  }
+
   function handleToggleFavoriteThread(threadId: string) {
     setFavoriteThreadIds((current) =>
       current.includes(threadId) ? current.filter((id) => id !== threadId) : [threadId, ...current]
@@ -1089,6 +1184,7 @@ export function AppShell() {
         participantName: thread.participant.name,
         unreadCount: thread.unreadCount
       })),
+      hiddenMessageIds,
       reports: reportHistory,
       deletionStatus,
       discovery: {
@@ -1255,10 +1351,12 @@ export function AppShell() {
             backendNotice={backendNotice}
             composerText={composerText}
             favoriteThreadIds={favoriteThreadIds}
+            hiddenMessageIds={hiddenMessageIds}
             isBackendLoading={isBackendLoading}
             onChangeComposerText={setComposerText}
             onAcceptRequest={handleAcceptRequest}
             onDeclineRequest={handleDeclineRequest}
+            onOpenMessageSafety={(thread, message) => setMessageSafetyTarget({ message, thread })}
             onSelectThread={setSelectedThreadId}
             onSendMessage={handleSendMessage}
             onOpenSafety={setSafetyThread}
@@ -1336,6 +1434,13 @@ export function AppShell() {
           onHide={handleHideThread}
           onReport={handleReportThread}
           thread={safetyThread}
+        />
+
+        <MessageSafetyModal
+          onClose={() => setMessageSafetyTarget(null)}
+          onHide={handleHideMessage}
+          onReport={handleReportMessage}
+          target={messageSafetyTarget}
         />
 
         <SafetySettingsModal
@@ -1610,10 +1715,12 @@ function ChatsScreen({
   backendNotice,
   composerText,
   favoriteThreadIds,
+  hiddenMessageIds,
   isBackendLoading,
   onAcceptRequest,
   onChangeComposerText,
   onDeclineRequest,
+  onOpenMessageSafety,
   onOpenOnboarding,
   onOpenSafety,
   onRefreshChats,
@@ -1628,10 +1735,12 @@ function ChatsScreen({
   backendNotice: string;
   composerText: string;
   favoriteThreadIds: string[];
+  hiddenMessageIds: string[];
   isBackendLoading: boolean;
   onAcceptRequest: (request: LocalMessageRequest) => void | Promise<void>;
   onChangeComposerText: (value: string) => void;
   onDeclineRequest: (request: LocalMessageRequest) => void | Promise<void>;
+  onOpenMessageSafety: (thread: ChatThread, message: ChatMessage) => void;
   onOpenOnboarding: () => void;
   onOpenSafety: (thread: ChatThread) => void;
   onRefreshChats: () => void | Promise<void>;
@@ -1644,6 +1753,9 @@ function ChatsScreen({
   threads: ChatThread[];
 }) {
   const hasThreads = threads.length > 0;
+  const visibleMessages = selectedThread
+    ? selectedThread.messages.filter((message) => !hiddenMessageIds.includes(message.id))
+    : [];
 
   return (
     <View style={styles.chatScreen}>
@@ -1760,20 +1872,35 @@ function ChatsScreen({
           </View>
 
           <ScrollView contentContainerStyle={styles.messageList} showsVerticalScrollIndicator={false}>
-            {selectedThread.messages.map((message) => {
+            {visibleMessages.map((message) => {
               const mine = message.authorId === "me";
 
               return (
-                <View
-                  key={message.id}
-                  style={[styles.messageBubble, mine ? styles.messageMine : styles.messageOther]}
-                >
-                  <Text style={[styles.messageText, mine ? styles.messageTextMine : undefined]}>
-                    {message.body}
-                  </Text>
+                <View key={message.id} style={[styles.messageRow, mine ? styles.messageRowMine : undefined]}>
+                  {!mine ? (
+                    <Pressable
+                      accessibilityLabel="이 메시지 신고 또는 숨기기"
+                      accessibilityRole="button"
+                      onPress={() => onOpenMessageSafety(selectedThread, message)}
+                      style={styles.messageSafetyButton}
+                    >
+                      <Ionicons color={colors.danger} name="flag-outline" size={15} />
+                    </Pressable>
+                  ) : null}
+                  <View style={[styles.messageBubble, mine ? styles.messageMine : styles.messageOther]}>
+                    <Text style={[styles.messageText, mine ? styles.messageTextMine : undefined]}>
+                      {message.body}
+                    </Text>
+                  </View>
                 </View>
               );
             })}
+            {selectedThread.messages.length > 0 && visibleMessages.length === 0 ? (
+              <View style={styles.hiddenMessagesNotice}>
+                <Ionicons color={colors.mutedInk} name="eye-off" size={18} />
+                <Text style={styles.panelCaption}>이 대화의 메시지를 모두 숨겼어요.</Text>
+              </View>
+            ) : null}
           </ScrollView>
 
           <ScrollView
@@ -2416,6 +2543,73 @@ function SafetyActionModal({
               >
                 <Ionicons color={colors.white} name="ban" size={20} />
                 <Text style={styles.actionTextDanger}>차단하고 추천에서 숨기기</Text>
+              </Pressable>
+
+              <Pressable accessibilityRole="button" onPress={onClose} style={styles.secondaryButton}>
+                <Text style={styles.secondaryButtonText}>닫기</Text>
+              </Pressable>
+            </>
+          ) : null}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function MessageSafetyModal({
+  onClose,
+  onHide,
+  onReport,
+  target
+}: {
+  onClose: () => void;
+  onHide: (threadId: string, messageId: string) => void;
+  onReport: (reason: string) => void | Promise<void>;
+  target: MessageSafetyTarget | null;
+}) {
+  const reportReasons = ["불쾌한 표현", "개인정보/연락처 요구", "스팸 또는 사기 의심"];
+
+  return (
+    <Modal animationType="fade" onRequestClose={onClose} transparent visible={Boolean(target)}>
+      <View style={styles.centerModalBackdrop}>
+        <View style={styles.actionSheet}>
+          {target ? (
+            <>
+              <View style={styles.actionHeader}>
+                <MascotMark size="sm" />
+                <View style={styles.fill}>
+                  <Text style={styles.kicker}>메시지 안전</Text>
+                  <Text style={styles.actionTitle}>{target.thread.participant.name}님의 메시지</Text>
+                </View>
+              </View>
+
+              <View style={styles.messagePreviewBox}>
+                <Text numberOfLines={3} style={styles.panelCaption}>
+                  {target.message.body}
+                </Text>
+              </View>
+
+              {reportReasons.map((reason) => (
+                <Pressable
+                  accessibilityLabel={`${reason} 사유로 메시지 신고하기`}
+                  accessibilityRole="button"
+                  key={reason}
+                  onPress={() => onReport(reason)}
+                  style={styles.actionRow}
+                >
+                  <Ionicons color={colors.danger} name="flag" size={20} />
+                  <Text style={styles.actionText}>{reason}</Text>
+                </Pressable>
+              ))}
+
+              <Pressable
+                accessibilityLabel="이 메시지만 숨기기"
+                accessibilityRole="button"
+                onPress={() => onHide(target.thread.id, target.message.id)}
+                style={styles.actionRow}
+              >
+                <Ionicons color={colors.mutedInk} name="eye-off" size={20} />
+                <Text style={styles.actionText}>이 메시지만 숨기기</Text>
               </Pressable>
 
               <Pressable accessibilityRole="button" onPress={onClose} style={styles.secondaryButton}>
@@ -3131,9 +3325,15 @@ const styles = StyleSheet.create({
     minWidth: 58,
     textAlign: "right"
   },
+  hiddenMessagesNotice: {
+    alignItems: "center",
+    alignSelf: "center",
+    flexDirection: "row",
+    gap: spacing.xs,
+    marginTop: spacing.sm
+  },
   messageBubble: {
     borderRadius: radius.lg,
-    marginBottom: spacing.sm,
     maxWidth: "82%",
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md
@@ -3151,14 +3351,39 @@ const styles = StyleSheet.create({
     padding: spacing.lg
   },
   messageMine: {
-    alignSelf: "flex-end",
     backgroundColor: colors.teal
   },
   messageOther: {
-    alignSelf: "flex-start",
     backgroundColor: colors.white,
     borderColor: colors.line,
     borderWidth: 1
+  },
+  messagePreviewBox: {
+    backgroundColor: colors.paper,
+    borderColor: colors.line,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    padding: spacing.md
+  },
+  messageRow: {
+    alignItems: "flex-end",
+    flexDirection: "row",
+    gap: spacing.xs,
+    marginBottom: spacing.sm,
+    width: "100%"
+  },
+  messageRowMine: {
+    justifyContent: "flex-end"
+  },
+  messageSafetyButton: {
+    alignItems: "center",
+    backgroundColor: colors.paper,
+    borderColor: colors.line,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    height: 28,
+    justifyContent: "center",
+    width: 28
   },
   messageText: {
     color: colors.ink,

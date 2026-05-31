@@ -877,6 +877,34 @@ export async function reportProfile(
   return { ok: true, data: null };
 }
 
+export async function reportMessage(
+  messageId: string,
+  reason: string,
+  details?: string
+): Promise<BackendResult<string>> {
+  if (!supabase) {
+    return { ok: false, error: "Supabase is not configured." };
+  }
+
+  const session = await ensureAnonymousSession();
+
+  if (!session.ok) {
+    return session;
+  }
+
+  const { data, error } = await supabase.rpc("report_message", {
+    details: details ?? null,
+    reason,
+    target_message_id: messageId
+  });
+
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+
+  return { ok: true, data: String(data) };
+}
+
 function toNearbyProfile(row: NearbyProfileRow, index: number): NearbyProfile {
   return {
     id: row.user_id,
