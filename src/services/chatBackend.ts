@@ -24,6 +24,11 @@ export type RewardSummary = {
   grantedAmount?: number;
 };
 
+export type AdRewardAttempt = {
+  attemptId: string;
+  userId: string;
+};
+
 export type PushTokenDraft = {
   deviceIdHash?: string;
   platform: "android" | "ios";
@@ -105,6 +110,11 @@ type PreferenceStateRow = {
 type RewardSummaryRow = {
   earned_today: number | null;
   granted_amount?: number | null;
+};
+
+type AdRewardAttemptRow = {
+  attempt_id: string;
+  viewer_id: string;
 };
 
 type AccountDeletionRow = {
@@ -619,7 +629,43 @@ export async function fetchRewardSummary(): Promise<BackendResult<RewardSummary>
   return { ok: true, data: { earnedToday: row?.earned_today ?? 0 } };
 }
 
-export async function claimAdReward(): Promise<BackendResult<RewardSummary>> {
+export async function prepareAdRewardAttempt(): Promise<BackendResult<AdRewardAttempt>> {
+  if (!supabase) {
+    return { ok: false, error: "Supabase is not configured." };
+  }
+
+  const session = await ensureAnonymousSession();
+
+  if (!session.ok) {
+    return { ok: false, error: session.error };
+  }
+
+  const { data, error } = await supabase.rpc("prepare_ad_reward_attempt", {
+    ad_unit_id: null,
+    amount: 1,
+    reward_type: "credit"
+  });
+
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+
+  const row = ((data ?? []) as AdRewardAttemptRow[])[0];
+
+  if (!row?.attempt_id || !row.viewer_id) {
+    return { ok: false, error: "Reward attempt was not created." };
+  }
+
+  return {
+    ok: true,
+    data: {
+      attemptId: row.attempt_id,
+      userId: row.viewer_id
+    }
+  };
+}
+
+export async function claimAdReward(clientAttemptId?: string): Promise<BackendResult<RewardSummary>> {
   if (!supabase) {
     return { ok: false, error: "Supabase is not configured." };
   }
@@ -633,7 +679,7 @@ export async function claimAdReward(): Promise<BackendResult<RewardSummary>> {
   const { data, error } = await supabase.rpc("claim_ad_reward", {
     amount: 1,
     reward_type: "credit",
-    ssv_id: null
+    ssv_id: clientAttemptId ?? null
   });
 
   if (error) {

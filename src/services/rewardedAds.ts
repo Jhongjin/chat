@@ -5,6 +5,11 @@ type EarnedReward = {
   type: string;
 };
 
+type RewardedAdVerificationOptions = {
+  customData: string;
+  userId: string;
+};
+
 export type RewardedAdResult =
   | {
       ok: true;
@@ -19,7 +24,9 @@ export type RewardedAdResult =
 
 let initialized = false;
 
-export async function showRewardedAd(): Promise<RewardedAdResult> {
+export async function showRewardedAd(
+  verificationOptions?: RewardedAdVerificationOptions
+): Promise<RewardedAdResult> {
   if (Platform.OS === "web") {
     await wait(900);
     return {
@@ -46,7 +53,8 @@ export async function showRewardedAd(): Promise<RewardedAdResult> {
 
     const adUnitId = getRewardedAdUnitId(ads.TestIds.REWARDED);
     const rewarded = ads.RewardedAd.createForAdRequest(adUnitId, {
-      requestNonPersonalizedAdsOnly: true
+      requestNonPersonalizedAdsOnly: true,
+      serverSideVerificationOptions: verificationOptions
     });
 
     return await new Promise<RewardedAdResult>((resolve) => {

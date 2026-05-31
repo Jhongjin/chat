@@ -13,7 +13,7 @@
 - 대화별 알림 끄기
 - 내 동네 일시 숨김
 - 사용자 데이터 JSON 내보내기
-- 리워드 광고 기반 혜택 화면
+- AdMob SSV 검증 기반 리워드 광고 혜택 화면
 - Supabase/PostGIS/RLS 기반 백엔드 초안
 - 시장 분석, 제품 전략, 디자인 시스템 문서
 
@@ -54,6 +54,7 @@ EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID=
 - [모바일 빌드 준비](./docs/mobile-build.md)
 - [푸시 알림 워커](./docs/notification-worker.md)
 - [신고 검수 운영](./docs/moderation-operations.md)
+- [AdMob SSV 리워드 검증](./docs/admob-ssv.md)
 - [Supabase 연결 설정](./docs/supabase-setup.md)
 - [Supabase 초기 스키마](./supabase/migrations/001_initial_schema.sql)
 - [쪽지 요청 RPC](./supabase/migrations/002_chat_flow_functions.sql)
@@ -69,6 +70,7 @@ EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID=
 - [신고 내역 조회 RPC](./supabase/migrations/012_report_history.sql)
 - [제품 지표 이벤트 RPC](./supabase/migrations/013_client_events.sql)
 - [운영자 신고 검수 RPC](./supabase/migrations/014_admin_moderation_tools.sql)
+- [AdMob SSV 리워드 검증 RPC](./supabase/migrations/015_ad_reward_verification.sql)
 
 ## 출시 전 필수 결정
 

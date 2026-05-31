@@ -28,7 +28,7 @@ EXPO_PUBLIC_ADMOB_ANDROID_REWARDED_ID=
 EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID=
 ```
 
-리워드 버튼은 네이티브 빌드에서 광고 시청 완료 이벤트를 받은 뒤 Supabase `claim_ad_reward` RPC로 하루 3회 보상 상한을 기록한다. 웹 프리뷰에서는 UI 검수용 개발 보상만 지급한다.
+리워드 버튼은 네이티브 빌드에서 광고 시청 완료 이벤트를 받은 뒤 Supabase `claim_ad_reward` RPC로 하루 3회 보상 상한을 기록한다. 운영 빌드에서는 광고 요청에 `serverSideVerificationOptions`를 포함하고, AdMob SSV 콜백은 `verify-ad-reward` Edge Function이 검증한다. 웹 프리뷰에서는 UI 검수용 개발 보상만 지급한다.
 
 ## 내부 테스트
 
@@ -50,3 +50,4 @@ npx eas build --profile preview --platform all
 - Supabase `service_role` key는 모바일 앱에 넣지 않는다.
 - AdMob 실제 App ID와 광고 단위 ID를 테스트 ID에서 운영 ID로 교체한다.
 - Supabase Edge Function secret에 `NOTIFICATION_WORKER_SECRET`, `SUPABASE_SERVICE_ROLE_KEY`를 설정한다.
+- AdMob 리워드 광고 단위에 `verify-ad-reward` SSV 콜백 URL을 설정하고 테스트 콜백을 실행한다.

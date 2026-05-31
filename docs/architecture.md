@@ -34,7 +34,7 @@ Expo SDK 56은 2026-05-21 릴리스되었고 React Native 0.85 및 React 19.2.3 
 - `reports`: 신고
 - `moderation_actions`: 운영자 조치
 - `push_tokens`: 푸시 토큰
-- `ad_reward_events`: 리워드 광고 검증 이벤트
+- `ad_reward_events`: 리워드 광고 시도, 클라이언트 보상, AdMob SSV 검증 이벤트
 - `account_deletion_requests`: 계정 삭제 요청
 - `notification_jobs`: 새 쪽지 요청/새 메시지 푸시 발송 대기 큐
 
@@ -53,6 +53,10 @@ Expo SDK 56은 2026-05-21 릴리스되었고 React Native 0.85 및 React 19.2.3 
 ## Realtime
 
 Supabase Realtime은 대화방 단위 private channel로 묶는다. 채널 join은 `conversation_members`에 해당 유저가 있는지 확인한다. 새 메시지 푸시는 DB trigger가 `notification_jobs`에 적재하고, Edge Function 또는 별도 워커가 Expo Push API로 전송한다.
+
+## Ads
+
+리워드 광고는 사용자가 기다리지 않도록 클라이언트 완료 콜백으로 먼저 보상하고, AdMob SSV 콜백으로 사후 검증한다. 앱은 광고 요청에 Supabase 사용자 ID와 pending attempt ID를 싣고, `verify-ad-reward` Edge Function은 AdMob 공개키 서명 검증 후 service role RPC로 같은 이벤트를 확정한다. `transaction_id`는 유니크하게 저장해 재시도 콜백과 중복 지급을 막는다.
 
 ## Moderation
 

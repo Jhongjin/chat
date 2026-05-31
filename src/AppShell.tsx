@@ -36,6 +36,7 @@ import {
   markConversationRead,
   muteConversationUntil,
   pauseDiscoveryUntil,
+  prepareAdRewardAttempt,
   registerPushToken,
   reportProfile,
   requestAccountDeletion,
@@ -1139,7 +1140,16 @@ export function AppShell() {
 
     setAdLoading(true);
 
-    const ad = await showRewardedAd();
+    const rewardAttempt = canUseBackend() ? await prepareAdRewardAttempt() : null;
+    const preparedRewardAttempt = rewardAttempt?.ok ? rewardAttempt.data : null;
+    const ad = await showRewardedAd(
+      preparedRewardAttempt
+        ? {
+            customData: preparedRewardAttempt.attemptId,
+            userId: preparedRewardAttempt.userId
+          }
+        : undefined
+    );
 
     if (!ad.ok) {
       setAdLoading(false);
@@ -1148,8 +1158,10 @@ export function AppShell() {
     }
 
     try {
+      let grantedRewardAmount = 1;
+
       if (canUseBackend()) {
-        const reward = await claimAdReward();
+        const reward = await claimAdReward(preparedRewardAttempt?.attemptId);
 
         if (!reward.ok) {
           setAdLoading(false);
@@ -1158,23 +1170,31 @@ export function AppShell() {
           return;
         }
 
-        setRewardCredits((current) => current + (reward.data.grantedAmount ?? 1));
+        grantedRewardAmount = reward.data.grantedAmount ?? 1;
+        setRewardCredits((current) => current + grantedRewardAmount);
         setEarnedToday(reward.data.earnedToday);
-        setBackendNotice("Supabase 리워드 기록 완료");
+        setBackendNotice(grantedRewardAmount > 0 ? "Supabase 리워드 기록 완료" : "이미 확인된 리워드 기록");
       } else {
-        setRewardCredits((current) => current + Math.max(1, ad.reward.amount || 1));
+        grantedRewardAmount = Math.max(1, ad.reward.amount || 1);
+        setRewardCredits((current) => current + grantedRewardAmount);
         setEarnedToday((current) => current + 1);
       }
 
       setAdLoading(false);
       void trackEvent("ad_reward_claimed", {
-        source: ad.source
+        source: ad.source,
+        verificationPrepared: Boolean(preparedRewardAttempt)
       });
-      Alert.alert(
-        "보상 지급",
-        ad.source === "admob"
+      const rewardAlertMessage =
+        grantedRewardAmount <= 0
+          ? "이미 서버에서 확인된 리워드라 추가 크레딧은 지급하지 않았어요."
+          : ad.source === "admob"
           ? "광고 시청이 확인되어 1 크레딧을 지급했어요."
-          : "개발 프리뷰 보상으로 1 크레딧을 지급했어요."
+          : "개발 프리뷰 보상으로 1 크레딧을 지급했어요.";
+
+      Alert.alert(
+        grantedRewardAmount > 0 ? "보상 지급" : "보상 확인",
+        rewardAlertMessage
       );
     } catch (error) {
       setAdLoading(false);
