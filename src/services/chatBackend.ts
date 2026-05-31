@@ -87,6 +87,7 @@ type MessageRow = {
 
 type PreferenceStateRow = {
   interests: string[] | null;
+  pause_until?: string | null;
   radius_m: number | null;
   visible: boolean | null;
 };
@@ -144,7 +145,7 @@ export async function ensureAnonymousSession(): Promise<BackendResult<string>> {
 }
 
 export async function fetchPreferenceState(): Promise<
-  BackendResult<{ interests: string[]; radiusKm: number; visible: boolean }>
+  BackendResult<{ interests: string[]; pauseUntil: string | null; radiusKm: number; visible: boolean }>
 > {
   if (!supabase) {
     return { ok: false, error: "Supabase is not configured." };
@@ -168,10 +169,35 @@ export async function fetchPreferenceState(): Promise<
     ok: true,
     data: {
       interests: row?.interests ?? [],
+      pauseUntil: row?.pause_until ?? null,
       radiusKm: Math.round((row?.radius_m ?? 5000) / 1000),
       visible: row?.visible ?? true
     }
   };
+}
+
+export async function pauseDiscoveryUntil(pauseUntil: string | null): Promise<BackendResult<string | null>> {
+  if (!supabase) {
+    return { ok: false, error: "Supabase is not configured." };
+  }
+
+  const session = await ensureAnonymousSession();
+
+  if (!session.ok) {
+    return { ok: false, error: session.error };
+  }
+
+  const { data, error } = await supabase.rpc("pause_discovery_until", {
+    paused_until: pauseUntil
+  });
+
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+
+  const row = ((data ?? []) as Array<{ pause_until: string | null }>)[0];
+
+  return { ok: true, data: row?.pause_until ?? null };
 }
 
 export async function saveProfile(draft: ProfileDraft): Promise<BackendResult<string>> {

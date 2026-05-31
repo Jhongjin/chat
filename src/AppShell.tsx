@@ -33,6 +33,7 @@ import {
   fetchPreferenceState,
   fetchRewardSummary,
   markConversationRead,
+  pauseDiscoveryUntil,
   registerPushToken,
   reportProfile,
   requestAccountDeletion,
@@ -101,6 +102,7 @@ export function AppShell() {
   const [selectedInterest, setSelectedInterest] = useState<InterestFilter>("전체");
   const [selectedInterests, setSelectedInterests] = useState<string[]>(["카페", "산책"]);
   const [isDiscoverable, setDiscoverable] = useState(true);
+  const [discoveryPauseUntil, setDiscoveryPauseUntil] = useState<string | null>(null);
   const [pushStatus, setPushStatus] = useState("알림 준비 전");
   const [deletionStatus, setDeletionStatus] = useState("요청 가능");
   const [pendingRequests, setPendingRequests] = useState<LocalMessageRequest[]>([]);
@@ -138,6 +140,7 @@ export function AppShell() {
       return sortByDistance(remoteProfiles ?? nearbyProfiles)
         .filter(
           (item) =>
+            !isDiscoveryPaused(discoveryPauseUntil) &&
             item.distanceKm <= radiusKm &&
             !blockedProfileIds.includes(item.id) &&
             (selectedInterest === "전체" || item.tags.includes(selectedInterest))
@@ -152,6 +155,7 @@ export function AppShell() {
     [
       blockedProfileIds,
       isOnboarded,
+      discoveryPauseUntil,
       profile.permissionGranted,
       radiusKm,
       remoteProfiles,
@@ -391,6 +395,7 @@ export function AppShell() {
 
     setRadiusKm(clampRadius(preferences.data.radiusKm));
     setDiscoverable(preferences.data.visible);
+    setDiscoveryPauseUntil(preferences.data.pauseUntil);
     if (preferences.data.interests.length > 0) {
       setSelectedInterests(preferences.data.interests);
     }
@@ -564,6 +569,30 @@ export function AppShell() {
       Alert.alert("노출 설정 저장 실패", saved.error);
     } else {
       setBackendNotice(nextVisible ? "동네 추천 노출이 켜졌어요" : "동네 추천 노출을 잠시 껐어요");
+    }
+  }
+
+  async function handleToggleDiscoveryPause() {
+    const nextPauseUntil = isDiscoveryPaused(discoveryPauseUntil) ? null : createTomorrowMorningPause();
+    setDiscoveryPauseUntil(nextPauseUntil);
+
+    if (!canUseBackend()) {
+      return;
+    }
+
+    const saved = await pauseDiscoveryUntil(nextPauseUntil);
+
+    if (!saved.ok) {
+      setDiscoveryPauseUntil(discoveryPauseUntil);
+      setBackendNotice(`Supabase 동네 숨김 저장 필요: ${saved.error}`);
+      Alert.alert("동네 숨김 저장 실패", saved.error);
+      return;
+    }
+
+    setDiscoveryPauseUntil(saved.data);
+    setBackendNotice(saved.data ? "내 동네 노출을 내일까지 숨겼어요" : "내 동네 노출 숨김을 해제했어요");
+    if (profile.permissionGranted) {
+      void syncNearbyProfiles();
     }
   }
 
@@ -961,6 +990,7 @@ export function AppShell() {
       deletionStatus,
       discovery: {
         discoverable: isDiscoverable,
+        pauseUntil: discoveryPauseUntil,
         radiusKm,
         selectedInterests
       },
@@ -1073,6 +1103,7 @@ export function AppShell() {
 
         {activeTab === "discover" ? (
           <DiscoverScreen
+            isDiscoveryPaused={isDiscoveryPaused(discoveryPauseUntil)}
             isOnboarded={isOnboarded}
             locationLabel={profile.locationLabel}
             locationPermissionGranted={profile.permissionGranted}
@@ -1087,6 +1118,7 @@ export function AppShell() {
             onChangeRadius={handleChangeRadius}
             onChangeInterest={setSelectedInterest}
             onOpenOnboarding={() => setOnboardingOpen(true)}
+            onOpenProfile={() => setActiveTab("profile")}
             onStartMessage={handleStartMessage}
             onRefreshLocation={handleLocate}
             isLocating={isLocating}
@@ -1138,10 +1170,12 @@ export function AppShell() {
             onOpenSafetySettings={() => setSafetySettingsOpen(true)}
             profile={profile}
             pushStatus={pushStatus}
+            discoveryPauseUntil={discoveryPauseUntil}
             quietHoursEnabled={quietHoursEnabled}
             radiusKm={radiusKm}
             selectedInterests={selectedInterests}
             onToggleDiscoverable={handleToggleDiscoverable}
+            onToggleDiscoveryPause={handleToggleDiscoveryPause}
             onToggleQuietHours={handleToggleQuietHours}
             onOpenOnboarding={() => setOnboardingOpen(true)}
           />
@@ -1190,6 +1224,7 @@ export function AppShell() {
 }
 
 function DiscoverScreen({
+  isDiscoveryPaused,
   isLocating,
   isOnboarded,
   isBackendLoading,
@@ -1201,6 +1236,7 @@ function DiscoverScreen({
   onChangeInterest,
   onChangeRadius,
   onOpenOnboarding,
+  onOpenProfile,
   onRefreshLocation,
   onStartMessage,
   profiles,
@@ -1208,6 +1244,7 @@ function DiscoverScreen({
   remainingMessageRequests,
   totalMessageRequestAllowance
 }: {
+  isDiscoveryPaused: boolean;
   isLocating: boolean;
   isOnboarded: boolean;
   isBackendLoading: boolean;
@@ -1219,6 +1256,7 @@ function DiscoverScreen({
   onChangeInterest: (filter: InterestFilter) => void;
   onChangeRadius: (radiusKm: number) => void;
   onOpenOnboarding: () => void;
+  onOpenProfile: () => void;
   onRefreshLocation: () => void;
   onStartMessage: (profile: NearbyProfile) => void;
   profiles: NearbyProfile[];
@@ -1336,6 +1374,14 @@ function DiscoverScreen({
           onAction={onRefreshLocation}
           title="아직 동네를 확인하지 않았어요"
           body="정확한 주소는 보이지 않고, 5km 이내 추천에만 사용해요."
+        />
+      ) : isDiscoveryPaused ? (
+        <EmptyState
+          actionLabel="내 정보에서 해제"
+          icon="pause-circle"
+          onAction={onOpenProfile}
+          title="내 동네 노출을 잠시 숨겼어요"
+          body="숨김 시간이 끝나거나 내 정보에서 해제하면 다시 가까운 친구 추천에 참여합니다."
         />
       ) : profiles.length === 0 ? (
         <EmptyState
@@ -1781,6 +1827,7 @@ function RewardRow({
 function ProfileScreen({
   blockedProfileCount,
   deletionStatus,
+  discoveryPauseUntil,
   favoriteThreadCount,
   isDiscoverable,
   onEnablePush,
@@ -1790,6 +1837,7 @@ function ProfileScreen({
   onOpenSafetySettings,
   onRequestAccountDeletion,
   onToggleDiscoverable,
+  onToggleDiscoveryPause,
   onToggleQuietHours,
   profile,
   pushStatus,
@@ -1799,6 +1847,7 @@ function ProfileScreen({
 }: {
   blockedProfileCount: number;
   deletionStatus: string;
+  discoveryPauseUntil: string | null;
   favoriteThreadCount: number;
   isDiscoverable: boolean;
   onEnablePush: () => void | Promise<void>;
@@ -1808,6 +1857,7 @@ function ProfileScreen({
   onOpenSafetySettings: () => void;
   onRequestAccountDeletion: () => void;
   onToggleDiscoverable: () => void | Promise<void>;
+  onToggleDiscoveryPause: () => void | Promise<void>;
   onToggleQuietHours: () => void;
   profile: OnboardingProfile;
   pushStatus: string;
@@ -1841,6 +1891,12 @@ function ProfileScreen({
           label="동네 추천 노출"
           onPress={onToggleDiscoverable}
           value={isDiscoverable ? "켜짐" : "꺼짐"}
+        />
+        <SettingRow
+          icon={isDiscoveryPaused(discoveryPauseUntil) ? "pause-circle" : "pause-circle-outline"}
+          label="내 동네 일시 숨김"
+          onPress={onToggleDiscoveryPause}
+          value={formatDiscoveryPause(discoveryPauseUntil)}
         />
         <SettingRow
           icon="sparkles"
@@ -2466,6 +2522,30 @@ function getQuickReplies(target: NearbyProfile) {
 
 function genderLabel(gender: Gender) {
   return genderOptions.find((option) => option.value === gender)?.label ?? "비공개";
+}
+
+function isDiscoveryPaused(pauseUntil: string | null) {
+  return Boolean(pauseUntil && new Date(pauseUntil).getTime() > Date.now());
+}
+
+function createTomorrowMorningPause() {
+  const until = new Date();
+  until.setDate(until.getDate() + 1);
+  until.setHours(8, 0, 0, 0);
+
+  return until.toISOString();
+}
+
+function formatDiscoveryPause(pauseUntil: string | null) {
+  if (!pauseUntil || !isDiscoveryPaused(pauseUntil)) {
+    return "꺼짐";
+  }
+
+  const until = new Date(pauseUntil);
+  const hour = String(until.getHours()).padStart(2, "0");
+  const minute = String(until.getMinutes()).padStart(2, "0");
+
+  return `${until.getMonth() + 1}/${until.getDate()} ${hour}:${minute}까지`;
 }
 
 const styles = StyleSheet.create({

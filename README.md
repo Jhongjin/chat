@@ -9,6 +9,7 @@
 - 첫 쪽지와 1:1 채팅 MVP 화면
 - 신고/차단, 차단 목록 확인과 차단 해제
 - 대화 즐겨찾기와 조용한 시간 알림 설정
+- 내 동네 일시 숨김
 - 사용자 데이터 JSON 내보내기
 - 리워드 광고 기반 혜택 화면
 - Supabase/PostGIS/RLS 기반 백엔드 초안
@@ -56,6 +57,7 @@ EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID=
 - [설정/리워드/푸시 RPC](./supabase/migrations/004_preferences_rewards_push.sql)
 - [계정 삭제 요청 RPC](./supabase/migrations/005_account_deletion_request.sql)
 - [차단 목록 관리 RPC](./supabase/migrations/006_block_list_management.sql)
+- [동네 노출 일시 숨김 RPC](./supabase/migrations/007_discovery_pause.sql)
 
 ## 출시 전 필수 결정
 

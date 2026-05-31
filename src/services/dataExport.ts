@@ -11,6 +11,7 @@ export type UserDataExportPayload = {
   deletionStatus: string;
   discovery: {
     discoverable: boolean;
+    pauseUntil: string | null;
     radiusKm: number;
     selectedInterests: string[];
   };

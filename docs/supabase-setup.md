@@ -37,6 +37,7 @@ Supabase SQL Editor에서 아래 파일을 순서대로 실행한다.
 4. `supabase/migrations/004_preferences_rewards_push.sql`
 5. `supabase/migrations/005_account_deletion_request.sql`
 6. `supabase/migrations/006_block_list_management.sql`
+7. `supabase/migrations/007_discovery_pause.sql`
 
 적용 후 앱에서 가능한 흐름:
 
@@ -54,6 +55,7 @@ Supabase SQL Editor에서 아래 파일을 순서대로 실행한다.
 - 계정 삭제 요청 접수와 추천/위치/푸시 중지
 - 신고/차단 저장
 - 차단 목록 조회와 차단 해제
+- 내 동네 노출 일시 숨김과 추천 제외
 
 ## 4. 운영 주의
 
