@@ -130,6 +130,7 @@ export function AppShell() {
   const [quietHoursLoaded, setQuietHoursLoaded] = useState(false);
   const [messageRequestTarget, setMessageRequestTarget] = useState<NearbyProfile | null>(null);
   const [messageRequestText, setMessageRequestText] = useState("");
+  const [isPolicyModalOpen, setPolicyModalOpen] = useState(false);
   const [isSafetySettingsOpen, setSafetySettingsOpen] = useState(false);
   const [safetyThread, setSafetyThread] = useState<ChatThread | null>(null);
   const [messageSafetyTarget, setMessageSafetyTarget] = useState<MessageSafetyTarget | null>(null);
@@ -1390,6 +1391,7 @@ export function AppShell() {
             onEnablePush={handleEnablePush}
             onExportData={handleExportData}
             onOpenChats={() => setActiveTab("chats")}
+            onOpenPolicy={() => setPolicyModalOpen(true)}
             onRequestAccountDeletion={handleRequestAccountDeletion}
             onOpenSafetySettings={() => setSafetySettingsOpen(true)}
             profile={profile}
@@ -1414,6 +1416,7 @@ export function AppShell() {
           onClose={handleCloseOnboarding}
           onComplete={handleCompleteOnboarding}
           onToggleInterest={handleToggleInterest}
+          onOpenPolicy={() => setPolicyModalOpen(true)}
           onLocate={handleLocate}
           profile={profile}
           selectedInterests={selectedInterests}
@@ -1442,6 +1445,8 @@ export function AppShell() {
           onReport={handleReportMessage}
           target={messageSafetyTarget}
         />
+
+        <PolicyNoticeModal isOpen={isPolicyModalOpen} onClose={() => setPolicyModalOpen(false)} />
 
         <SafetySettingsModal
           blockedProfiles={blockedProfiles}
@@ -2107,6 +2112,7 @@ function ProfileScreen({
   onExportData,
   onOpenChats,
   onOpenOnboarding,
+  onOpenPolicy,
   onOpenSafetySettings,
   onRequestAccountDeletion,
   onToggleDiscoverable,
@@ -2127,6 +2133,7 @@ function ProfileScreen({
   onExportData: () => void | Promise<void>;
   onOpenChats: () => void;
   onOpenOnboarding: () => void;
+  onOpenPolicy: () => void;
   onOpenSafetySettings: () => void;
   onRequestAccountDeletion: () => void;
   onToggleDiscoverable: () => void | Promise<void>;
@@ -2198,6 +2205,7 @@ function ProfileScreen({
           value="비공개"
         />
         <SettingRow icon="download" label="데이터 내보내기" onPress={onExportData} value="JSON" />
+        <SettingRow icon="document-text" label="약관/개인정보" onPress={onOpenPolicy} value="보기" />
         <SettingRow
           icon="shield-checkmark"
           label="신고/차단"
@@ -2258,6 +2266,7 @@ function OnboardingModal({
   onComplete,
   onToggleInterest,
   onLocate,
+  onOpenPolicy,
   profile,
   selectedInterests,
   setProfile
@@ -2269,6 +2278,7 @@ function OnboardingModal({
   onComplete: () => void;
   onToggleInterest: (interest: string) => void;
   onLocate: () => void;
+  onOpenPolicy: () => void;
   profile: OnboardingProfile;
   selectedInterests: string[];
   setProfile: (profile: OnboardingProfile) => void;
@@ -2384,6 +2394,11 @@ function OnboardingModal({
             <Text style={styles.policyText}>
               만 18세 이상이며, 약관·개인정보·위치기반서비스 안내를 확인했어요.
             </Text>
+          </Pressable>
+
+          <Pressable accessibilityRole="button" onPress={onOpenPolicy} style={styles.policyLinkButton}>
+            <Ionicons color={colors.teal} name="document-text" size={17} />
+            <Text style={styles.policyLinkText}>약관/개인정보 안내 보기</Text>
           </Pressable>
 
           <Pressable accessibilityRole="button" onPress={onComplete} style={styles.primaryButton}>
@@ -2617,6 +2632,74 @@ function MessageSafetyModal({
               </Pressable>
             </>
           ) : null}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function PolicyNoticeModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+  const sections = [
+    {
+      title: "서비스 이용",
+      items: [
+        "만 18세 이상 사용자를 전제로 운영합니다.",
+        "불쾌한 메시지, 스팸, 위험한 만남 유도는 신고 대상입니다.",
+        "신고와 차단은 무료로 제공하며 운영 검토에 사용됩니다."
+      ]
+    },
+    {
+      title: "개인정보",
+      items: [
+        "가입에는 표시 이름, 나이, 성별만 필수로 사용합니다.",
+        "대화, 신고, 리워드 기록은 서비스 운영과 안전 대응에 사용됩니다.",
+        "데이터 내보내기와 계정 삭제 요청 경로를 앱 안에 제공합니다."
+      ]
+    },
+    {
+      title: "위치",
+      items: [
+        "위치는 5km 이내 추천과 대략 거리 표시에만 사용합니다.",
+        "상대에게 정확한 좌표나 주소를 보여주지 않습니다.",
+        "위치 권한을 거부해도 프로필과 일부 화면은 계속 사용할 수 있습니다."
+      ]
+    }
+  ];
+
+  return (
+    <Modal animationType="fade" onRequestClose={onClose} transparent visible={isOpen}>
+      <View style={styles.centerModalBackdrop}>
+        <View style={styles.actionSheet}>
+          <View style={styles.actionHeader}>
+            <MascotMark size="sm" />
+            <View style={styles.fill}>
+              <Text style={styles.kicker}>정책 안내</Text>
+              <Text style={styles.actionTitle}>약관/개인정보/위치</Text>
+            </View>
+          </View>
+
+          <ScrollView style={styles.policyNoticeScroll}>
+            {sections.map((section) => (
+              <View key={section.title} style={styles.policyNoticeBlock}>
+                <Text style={styles.panelTitle}>{section.title}</Text>
+                {section.items.map((item) => (
+                  <View key={item} style={styles.policyNoticeItem}>
+                    <View style={styles.policyNoticeDot} />
+                    <Text style={styles.panelCaption}>{item}</Text>
+                  </View>
+                ))}
+              </View>
+            ))}
+          </ScrollView>
+
+          <View style={styles.policyReviewBand}>
+            <Ionicons color={colors.mutedInk} name="information-circle" size={18} />
+            <Text style={styles.panelCaption}>출시 전 변호사/노무·개인정보 전문가 검토가 필요합니다.</Text>
+          </View>
+
+          <Pressable accessibilityRole="button" onPress={onClose} style={styles.secondaryButton}>
+            <Text style={styles.secondaryButtonText}>확인</Text>
+          </Pressable>
         </View>
       </View>
     </Modal>
@@ -3548,6 +3631,48 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: spacing.md,
     minHeight: 62,
+    padding: spacing.md
+  },
+  policyLinkButton: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    gap: spacing.xs,
+    minHeight: 36,
+    paddingHorizontal: spacing.xs
+  },
+  policyLinkText: {
+    color: colors.teal,
+    fontSize: type.caption,
+    fontWeight: "900"
+  },
+  policyNoticeBlock: {
+    gap: spacing.sm,
+    marginBottom: spacing.lg
+  },
+  policyNoticeDot: {
+    backgroundColor: colors.teal,
+    borderRadius: radius.pill,
+    height: 6,
+    marginTop: 7,
+    width: 6
+  },
+  policyNoticeItem: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: spacing.sm
+  },
+  policyNoticeScroll: {
+    maxHeight: 360
+  },
+  policyReviewBand: {
+    alignItems: "flex-start",
+    backgroundColor: colors.white,
+    borderColor: colors.line,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
     padding: spacing.md
   },
   policyText: {

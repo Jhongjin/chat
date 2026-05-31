@@ -15,6 +15,7 @@
 - 대화별 알림 끄기
 - 내 동네 일시 숨김
 - 사용자 데이터 JSON 내보내기
+- 앱 내 약관/개인정보/위치 안내
 - AdMob SSV 검증 기반 리워드 광고 혜택 화면
 - Supabase/PostGIS/RLS 기반 백엔드 초안
 - 시장 분석, 제품 전략, 디자인 시스템 문서
@@ -51,6 +52,7 @@ EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID=
 - [기술 아키텍처](./docs/architecture.md)
 - [서브 에이전트 운영 계획](./docs/agent-workplan.md)
 - [출시 전 컴플라이언스 체크리스트](./docs/compliance-checklist.md)
+- [정책 안내 초안](./docs/legal-notices.md)
 - [UI/UX 디자인 점검 결과](./docs/design-qa.md)
 - [채팅 경험 고도화 로드맵](./docs/chat-experience-roadmap.md)
 - [모바일 빌드 준비](./docs/mobile-build.md)
