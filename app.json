@@ -11,6 +11,7 @@
     ],
     "ios": {
       "supportsTablet": false,
+      "buildNumber": "1",
       "bundleIdentifier": "com.jhongjin.dongneon",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "5km 이내 동네 친구를 추천하기 위해 현재 위치를 사용합니다. 정확한 위치는 다른 사용자에게 공개하지 않습니다."
@@ -18,6 +19,7 @@
     },
     "android": {
       "package": "com.jhongjin.dongneon",
+      "versionCode": 1,
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
