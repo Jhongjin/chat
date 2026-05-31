@@ -6,6 +6,7 @@ export type UserDataExportPayload = {
     id: string;
     participantName: string;
     unreadCount: number;
+    mutedUntil: string | null;
     messages: Array<{ authorId: string; body: string; createdAt: string; id: string }>;
   }>;
   deletionStatus: string;

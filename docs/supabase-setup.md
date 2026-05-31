@@ -41,6 +41,7 @@ Supabase SQL Editor에서 아래 파일을 순서대로 실행한다.
 8. `supabase/migrations/008_message_safety_filter.sql`
 9. `supabase/migrations/009_notification_jobs.sql`
 10. `supabase/migrations/010_notification_job_claims.sql`
+11. `supabase/migrations/011_conversation_mute.sql`
 
 적용 후 앱에서 가능한 흐름:
 
@@ -62,6 +63,7 @@ Supabase SQL Editor에서 아래 파일을 순서대로 실행한다.
 - 첫 쪽지/일반 채팅의 연락처·주소·외부 메신저 공유 제한
 - 새 쪽지 요청/새 메시지 알림 작업 큐 생성
 - Edge Function 푸시 워커의 작업 claim/완료 처리
+- 대화별 알림 끄기와 푸시 큐 제외
 
 ## 4. 운영 주의
 

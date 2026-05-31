@@ -9,6 +9,7 @@
 - 첫 쪽지와 1:1 채팅 MVP 화면
 - 신고/차단, 차단 목록 확인과 차단 해제
 - 대화 즐겨찾기와 조용한 시간 알림 설정
+- 대화별 알림 끄기
 - 내 동네 일시 숨김
 - 사용자 데이터 JSON 내보내기
 - 리워드 광고 기반 혜택 화면
@@ -62,6 +63,7 @@ EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID=
 - [메시지 안전 필터 RPC](./supabase/migrations/008_message_safety_filter.sql)
 - [푸시 알림 작업 큐](./supabase/migrations/009_notification_jobs.sql)
 - [푸시 알림 워커 RPC](./supabase/migrations/010_notification_job_claims.sql)
+- [대화별 알림 끄기 RPC](./supabase/migrations/011_conversation_mute.sql)
 
 ## 출시 전 필수 결정
 

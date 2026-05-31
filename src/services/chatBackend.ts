@@ -73,6 +73,7 @@ type ConversationRow = {
   last_message_body: string | null;
   last_message_at: string | null;
   last_message_sender_id: string | null;
+  muted_until?: string | null;
   unread_count: number | null;
 };
 
@@ -418,6 +419,7 @@ export async function fetchConversations(): Promise<BackendResult<ChatThread[]>>
       return {
         id: row.conversation_id,
         messages: messages.ok ? messages.data : toPreviewMessages(row, session.data),
+        mutedUntil: row.muted_until ?? null,
         participant: toNearbyProfile(toConversationPeerRow(row), index),
         unreadCount: row.unread_count ?? 0
       };
@@ -509,6 +511,34 @@ export async function markConversationRead(conversationId: string): Promise<Back
   }
 
   return { ok: true, data: null };
+}
+
+export async function muteConversationUntil(
+  conversationId: string,
+  mutedUntil: string | null
+): Promise<BackendResult<string | null>> {
+  if (!supabase) {
+    return { ok: false, error: "Supabase is not configured." };
+  }
+
+  const session = await ensureAnonymousSession();
+
+  if (!session.ok) {
+    return { ok: false, error: session.error };
+  }
+
+  const { data, error } = await supabase.rpc("mute_conversation_until", {
+    next_muted_until: mutedUntil,
+    target_conversation_id: conversationId
+  });
+
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+
+  const row = ((data ?? []) as Array<{ muted_until: string | null }>)[0];
+
+  return { ok: true, data: row?.muted_until ?? null };
 }
 
 export async function subscribeToConversationMessages(

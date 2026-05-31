@@ -33,6 +33,7 @@ import {
   fetchPreferenceState,
   fetchRewardSummary,
   markConversationRead,
+  muteConversationUntil,
   pauseDiscoveryUntil,
   registerPushToken,
   reportProfile,
@@ -951,6 +952,38 @@ export function AppShell() {
     );
   }
 
+  async function handleToggleThreadMute(thread: ChatThread) {
+    const nextMutedUntil = isThreadMuted(thread.mutedUntil) ? null : createTomorrowMorningPause();
+
+    if (canUseBackend() && isUuid(thread.id)) {
+      setBackendLoading(true);
+      const muted = await muteConversationUntil(thread.id, nextMutedUntil);
+      setBackendLoading(false);
+
+      if (!muted.ok) {
+        setBackendNotice(`Supabase 대화 알림 설정 필요: ${muted.error}`);
+        Alert.alert("대화 알림 설정 실패", muted.error);
+        return;
+      }
+
+      updateThreadMute(thread.id, muted.data);
+      setBackendNotice(muted.data ? "이 대화 알림을 내일까지 껐어요" : "이 대화 알림을 다시 켰어요");
+    } else {
+      updateThreadMute(thread.id, nextMutedUntil);
+    }
+
+    Alert.alert(
+      nextMutedUntil ? "대화 알림 끄기" : "대화 알림 켜기",
+      nextMutedUntil ? "이 대화의 새 메시지 알림을 내일 오전까지 쉬게 했어요." : "이 대화의 새 메시지 알림을 다시 받을 수 있어요."
+    );
+  }
+
+  function updateThreadMute(threadId: string, mutedUntil: string | null) {
+    setThreads((current) =>
+      current.map((item) => (item.id === threadId ? { ...item, mutedUntil } : item))
+    );
+  }
+
   async function handleUnblockProfile(profileId: string) {
     if (canUseBackend() && isUuid(profileId)) {
       setBackendLoading(true);
@@ -984,6 +1017,7 @@ export function AppShell() {
       conversations: threads.map((thread) => ({
         id: thread.id,
         messages: thread.messages,
+        mutedUntil: thread.mutedUntil ?? null,
         participantName: thread.participant.name,
         unreadCount: thread.unreadCount
       })),
@@ -1139,6 +1173,7 @@ export function AppShell() {
             onOpenSafety={setSafetyThread}
             onOpenOnboarding={() => setOnboardingOpen(true)}
             onRefreshChats={syncChatState}
+            onToggleThreadMute={handleToggleThreadMute}
             onToggleFavoriteThread={handleToggleFavoriteThread}
             selectedThread={selectedThread}
             threads={orderedThreads}
@@ -1493,6 +1528,7 @@ function ChatsScreen({
   onSelectThread,
   onSendMessage,
   onToggleFavoriteThread,
+  onToggleThreadMute,
   pendingRequests,
   selectedThread,
   threads
@@ -1510,6 +1546,7 @@ function ChatsScreen({
   onSelectThread: (threadId: string) => void;
   onSendMessage: (thread: ChatThread) => void | Promise<void>;
   onToggleFavoriteThread: (threadId: string) => void;
+  onToggleThreadMute: (thread: ChatThread) => void | Promise<void>;
   pendingRequests: LocalMessageRequest[];
   selectedThread?: ChatThread;
   threads: ChatThread[];
@@ -1558,6 +1595,9 @@ function ChatsScreen({
                 {favoriteThreadIds.includes(item.id) ? (
                   <Ionicons color={colors.yellow} name="star" size={13} />
                 ) : null}
+                {isThreadMuted(item.mutedUntil) ? (
+                  <Ionicons color={colors.mutedInk} name="notifications-off" size={13} />
+                ) : null}
                 {item.unreadCount ? <View style={styles.unreadDot} /> : null}
               </Pressable>
             )}
@@ -1600,6 +1640,20 @@ function ChatsScreen({
               <Ionicons
                 color={favoriteThreadIds.includes(selectedThread.id) ? colors.yellow : colors.mutedInk}
                 name={favoriteThreadIds.includes(selectedThread.id) ? "star" : "star-outline"}
+                size={18}
+              />
+            </Pressable>
+            <Pressable
+              accessibilityLabel={`${selectedThread.participant.name}님과의 대화 알림 ${
+                isThreadMuted(selectedThread.mutedUntil) ? "켜기" : "끄기"
+              }`}
+              accessibilityRole="button"
+              onPress={() => onToggleThreadMute(selectedThread)}
+              style={styles.smallIconButton}
+            >
+              <Ionicons
+                color={isThreadMuted(selectedThread.mutedUntil) ? colors.mutedInk : colors.teal}
+                name={isThreadMuted(selectedThread.mutedUntil) ? "notifications-off" : "notifications"}
                 size={18}
               />
             </Pressable>
@@ -2526,6 +2580,10 @@ function genderLabel(gender: Gender) {
 
 function isDiscoveryPaused(pauseUntil: string | null) {
   return Boolean(pauseUntil && new Date(pauseUntil).getTime() > Date.now());
+}
+
+function isThreadMuted(mutedUntil: string | null | undefined) {
+  return Boolean(mutedUntil && new Date(mutedUntil).getTime() > Date.now());
 }
 
 function createTomorrowMorningPause() {

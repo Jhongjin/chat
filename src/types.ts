@@ -26,6 +26,7 @@ export type ChatThread = {
   id: string;
   participant: NearbyProfile;
   unreadCount: number;
+  mutedUntil?: string | null;
   messages: ChatMessage[];
 };
 
