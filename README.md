@@ -58,6 +58,7 @@ EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID=
 - [계정 삭제 요청 RPC](./supabase/migrations/005_account_deletion_request.sql)
 - [차단 목록 관리 RPC](./supabase/migrations/006_block_list_management.sql)
 - [동네 노출 일시 숨김 RPC](./supabase/migrations/007_discovery_pause.sql)
+- [메시지 안전 필터 RPC](./supabase/migrations/008_message_safety_filter.sql)
 
 ## 출시 전 필수 결정
 

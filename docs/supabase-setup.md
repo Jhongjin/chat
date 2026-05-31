@@ -38,6 +38,7 @@ Supabase SQL Editor에서 아래 파일을 순서대로 실행한다.
 5. `supabase/migrations/005_account_deletion_request.sql`
 6. `supabase/migrations/006_block_list_management.sql`
 7. `supabase/migrations/007_discovery_pause.sql`
+8. `supabase/migrations/008_message_safety_filter.sql`
 
 적용 후 앱에서 가능한 흐름:
 
@@ -56,6 +57,7 @@ Supabase SQL Editor에서 아래 파일을 순서대로 실행한다.
 - 신고/차단 저장
 - 차단 목록 조회와 차단 해제
 - 내 동네 노출 일시 숨김과 추천 제외
+- 첫 쪽지/일반 채팅의 연락처·주소·외부 메신저 공유 제한
 
 ## 4. 운영 주의
 
