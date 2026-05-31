@@ -31,6 +31,15 @@ Expo SDK 56 기반입니다. SDK 56의 최소 Node.js 기준은 22.13.x 계열�
 
 브라우저에서 보이는 화면은 개발 확인용 웹 프리뷰입니다. 실제 앱 검수는 iOS/Android EAS Development Build로 진행합니다.
 
+## 검증
+
+```bash
+npm run typecheck
+npx expo-doctor
+```
+
+GitHub Actions는 `main`과 `codex/**` 브랜치 push, pull request에서 위 검증을 자동 실행합니다.
+
 ## 환경 변수
 
 `.env.example`을 기준으로 Supabase와 AdMob 값을 설정합니다.
