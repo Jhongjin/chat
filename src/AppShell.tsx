@@ -26,6 +26,7 @@ import {
   claimAdReward,
   createMessageRequest,
   declineMessageRequest,
+  fetchBlockedProfiles,
   fetchConversations,
   fetchMessageRequests,
   fetchNearbyProfiles,
@@ -40,6 +41,7 @@ import {
   saveProfileInterests,
   sendConversationMessage,
   subscribeToConversationMessages,
+  unblockProfile,
   updateMyLocation,
   type LocationDraft,
   type MessageRequestItem
@@ -272,6 +274,7 @@ export function AppShell() {
   useEffect(() => {
     if (isOnboarded && canUseBackend()) {
       void syncChatState();
+      void syncBlockedProfiles();
       void syncPreferenceState();
       void syncRewardSummary();
     }
@@ -356,6 +359,22 @@ export function AppShell() {
     }
 
     setBackendLoading(false);
+  }
+
+  async function syncBlockedProfiles() {
+    if (!canUseBackend()) {
+      return;
+    }
+
+    const blocked = await fetchBlockedProfiles();
+
+    if (!blocked.ok) {
+      setBackendNotice(`Supabase 차단 목록 동기화 필요: ${blocked.error}`);
+      return;
+    }
+
+    setBlockedProfiles(blocked.data);
+    setBlockedProfileIds(blocked.data.map((profileItem) => profileItem.id));
   }
 
   async function syncPreferenceState() {
@@ -903,9 +922,26 @@ export function AppShell() {
     );
   }
 
-  function handleUnblockProfile(profileId: string) {
+  async function handleUnblockProfile(profileId: string) {
+    if (canUseBackend() && isUuid(profileId)) {
+      setBackendLoading(true);
+      const unblocked = await unblockProfile(profileId);
+      setBackendLoading(false);
+
+      if (!unblocked.ok) {
+        setBackendNotice(`Supabase 차단 해제 필요: ${unblocked.error}`);
+        Alert.alert("차단 해제 실패", unblocked.error);
+        return;
+      }
+
+      setBackendNotice("Supabase 차단 해제 완료");
+    }
+
     setBlockedProfileIds((current) => current.filter((id) => id !== profileId));
     setBlockedProfiles((current) => current.filter((profileItem) => profileItem.id !== profileId));
+    if (profile.permissionGranted) {
+      void syncNearbyProfiles();
+    }
     Alert.alert("차단 해제", "다시 동네 추천 목록에 표시될 수 있어요.");
   }
 

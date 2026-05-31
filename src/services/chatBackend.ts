@@ -630,6 +630,29 @@ export async function requestAccountDeletion(): Promise<BackendResult<AccountDel
   };
 }
 
+export async function fetchBlockedProfiles(): Promise<BackendResult<NearbyProfile[]>> {
+  if (!supabase) {
+    return { ok: false, error: "Supabase is not configured." };
+  }
+
+  const session = await ensureAnonymousSession();
+
+  if (!session.ok) {
+    return { ok: false, error: session.error };
+  }
+
+  const { data, error } = await supabase.rpc("my_blocked_profiles");
+
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+
+  return {
+    ok: true,
+    data: ((data ?? []) as NearbyProfileRow[]).map(toNearbyProfile)
+  };
+}
+
 export async function blockProfile(blockedId: string): Promise<BackendResult<null>> {
   if (!supabase) {
     return { ok: false, error: "Supabase is not configured." };
@@ -644,6 +667,28 @@ export async function blockProfile(blockedId: string): Promise<BackendResult<nul
   const { error } = await supabase.from("blocks").upsert({
     blocker_id: session.data,
     blocked_id: blockedId
+  });
+
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+
+  return { ok: true, data: null };
+}
+
+export async function unblockProfile(blockedId: string): Promise<BackendResult<null>> {
+  if (!supabase) {
+    return { ok: false, error: "Supabase is not configured." };
+  }
+
+  const session = await ensureAnonymousSession();
+
+  if (!session.ok) {
+    return { ok: false, error: session.error };
+  }
+
+  const { error } = await supabase.rpc("unblock_profile", {
+    blocked_user_id: blockedId
   });
 
   if (error) {
