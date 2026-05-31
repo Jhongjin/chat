@@ -47,6 +47,8 @@ Expo SDK 56은 2026-05-21 릴리스되었고 React Native 0.85 및 React 19.2.3 
 - `messages`: 대화 참여자만 조회/작성 가능
 - `blocks`: 본인이 건 차단만 생성/조회/해제 가능
 - `reports`: 사용자는 생성과 자기 신고 조회만 가능, 운영자는 service role 또는 admin claim 사용
+- `admin_report_queue`: service role 전용 신고 큐 조회
+- `admin_suspend_profile`: service role 전용 계정 제재 기록
 
 ## Realtime
 

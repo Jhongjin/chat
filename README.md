@@ -53,6 +53,7 @@ EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID=
 - [채팅 경험 고도화 로드맵](./docs/chat-experience-roadmap.md)
 - [모바일 빌드 준비](./docs/mobile-build.md)
 - [푸시 알림 워커](./docs/notification-worker.md)
+- [신고 검수 운영](./docs/moderation-operations.md)
 - [Supabase 연결 설정](./docs/supabase-setup.md)
 - [Supabase 초기 스키마](./supabase/migrations/001_initial_schema.sql)
 - [쪽지 요청 RPC](./supabase/migrations/002_chat_flow_functions.sql)
@@ -67,6 +68,7 @@ EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID=
 - [대화별 알림 끄기 RPC](./supabase/migrations/011_conversation_mute.sql)
 - [신고 내역 조회 RPC](./supabase/migrations/012_report_history.sql)
 - [제품 지표 이벤트 RPC](./supabase/migrations/013_client_events.sql)
+- [운영자 신고 검수 RPC](./supabase/migrations/014_admin_moderation_tools.sql)
 
 ## 출시 전 필수 결정
 
