@@ -36,6 +36,7 @@ Expo SDK 56은 2026-05-21 릴리스되었고 React Native 0.85 및 React 19.2.3 
 - `push_tokens`: 푸시 토큰
 - `ad_reward_events`: 리워드 광고 검증 이벤트
 - `account_deletion_requests`: 계정 삭제 요청
+- `notification_jobs`: 새 쪽지 요청/새 메시지 푸시 발송 대기 큐
 
 ## API/RLS 정책
 
@@ -49,7 +50,7 @@ Expo SDK 56은 2026-05-21 릴리스되었고 React Native 0.85 및 React 19.2.3 
 
 ## Realtime
 
-Supabase Realtime은 대화방 단위 private channel로 묶는다. 채널 join은 `conversation_members`에 해당 유저가 있는지 확인한다. 새 메시지 푸시는 Edge Function 또는 DB trigger 기반 알림 큐로 처리한다.
+Supabase Realtime은 대화방 단위 private channel로 묶는다. 채널 join은 `conversation_members`에 해당 유저가 있는지 확인한다. 새 메시지 푸시는 DB trigger가 `notification_jobs`에 적재하고, Edge Function 또는 별도 워커가 Expo Push API로 전송한다.
 
 ## Moderation
 
