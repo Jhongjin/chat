@@ -50,6 +50,7 @@ EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID=
 - [UI/UX 디자인 점검 결과](./docs/design-qa.md)
 - [채팅 경험 고도화 로드맵](./docs/chat-experience-roadmap.md)
 - [모바일 빌드 준비](./docs/mobile-build.md)
+- [푸시 알림 워커](./docs/notification-worker.md)
 - [Supabase 연결 설정](./docs/supabase-setup.md)
 - [Supabase 초기 스키마](./supabase/migrations/001_initial_schema.sql)
 - [쪽지 요청 RPC](./supabase/migrations/002_chat_flow_functions.sql)
@@ -60,6 +61,7 @@ EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID=
 - [동네 노출 일시 숨김 RPC](./supabase/migrations/007_discovery_pause.sql)
 - [메시지 안전 필터 RPC](./supabase/migrations/008_message_safety_filter.sql)
 - [푸시 알림 작업 큐](./supabase/migrations/009_notification_jobs.sql)
+- [푸시 알림 워커 RPC](./supabase/migrations/010_notification_job_claims.sql)
 
 ## 출시 전 필수 결정
 
