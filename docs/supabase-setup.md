@@ -49,6 +49,7 @@ Supabase SQL Editor에서 아래 파일을 순서대로 실행한다.
 14. `supabase/migrations/014_admin_moderation_tools.sql`
 15. `supabase/migrations/015_ad_reward_verification.sql`
 16. `supabase/migrations/016_message_report_rpc.sql`
+17. `supabase/migrations/017_message_rate_limits.sql`
 
 적용 후 앱에서 가능한 흐름:
 
@@ -76,6 +77,7 @@ Supabase SQL Editor에서 아래 파일을 순서대로 실행한다.
 - service role 전용 신고 큐 조회, 신고 상태 변경, 계정 제재/복구
 - AdMob SSV 콜백 검증과 리워드 중복 지급 방지
 - 대화 참여자만 가능한 메시지 단위 신고
+- 같은 상대 첫 쪽지 중복 방지, 채팅 도배/반복 메시지 차단
 
 ## 4. 운영 주의
 

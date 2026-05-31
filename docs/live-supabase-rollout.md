@@ -15,7 +15,7 @@ region: ap-northeast-2
 - SQL Editor에서 한 파일씩 실행한다. 오류가 나면 다음 파일로 넘어가지 않는다.
 - 모바일 앱에는 `anon public` key만 들어간다.
 - `service_role` key, DB password, AdMob secret 성격의 값은 채팅에 붙이지 않고 Supabase secret 또는 로컬 CLI에만 둔다.
-- 이미 `001`부터 `005`까지 적용했다면 `006`부터 이어서 실행한다. 새 프로젝트라면 `001`부터 `016`까지 순서대로 실행한다.
+- 이미 `001`부터 `005`까지 적용했다면 `006`부터 이어서 실행한다. 새 프로젝트라면 `001`부터 `017`까지 순서대로 실행한다.
 
 ## 2. SQL 적용 순서
 
@@ -35,6 +35,7 @@ region: ap-northeast-2
 14. `supabase/migrations/014_admin_moderation_tools.sql`
 15. `supabase/migrations/015_ad_reward_verification.sql`
 16. `supabase/migrations/016_message_report_rpc.sql`
+17. `supabase/migrations/017_message_rate_limits.sql`
 
 ## 3. 적용 확인 SQL
 
@@ -74,6 +75,7 @@ where proname in (
   'prepare_ad_reward_attempt',
   'confirm_ad_reward_from_ssv',
   'claim_notification_jobs',
+  'contains_sensitive_contact',
   'admin_report_queue'
 )
 order by proname;
@@ -110,6 +112,7 @@ supabase secrets set NOTIFICATION_WORKER_SECRET=... --project-ref zmmukecvxhehai
 - 온보딩에서 이름/나이/성별/동의를 저장한다.
 - 위치 허용 후 `nearby_profiles` 오류가 없는지 확인한다.
 - 첫 쪽지 요청, 수락, 채팅 전송을 각각 한 번씩 확인한다.
+- 같은 문장을 2분 안에 반복 전송하면 차단되는지 확인한다.
 - 상대 메시지 신고 버튼을 눌러 `reports.message_id`가 기록되는지 확인한다.
 - 리워드 광고는 네이티브 빌드에서만 AdMob 이벤트까지 확인한다.
 

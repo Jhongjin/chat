@@ -189,7 +189,7 @@ export async function fetchPreferenceState(): Promise<
   const { data, error } = await supabase.rpc("my_preference_state");
 
   if (error) {
-    return { ok: false, error: error.message };
+    return { ok: false, error: toFriendlyChatError(error.message) };
   }
 
   const row = ((data ?? []) as PreferenceStateRow[])[0];
@@ -221,7 +221,7 @@ export async function pauseDiscoveryUntil(pauseUntil: string | null): Promise<Ba
   });
 
   if (error) {
-    return { ok: false, error: error.message };
+    return { ok: false, error: toFriendlyChatError(error.message) };
   }
 
   const row = ((data ?? []) as Array<{ pause_until: string | null }>)[0];
@@ -250,7 +250,7 @@ export async function saveProfile(draft: ProfileDraft): Promise<BackendResult<st
   });
 
   if (error) {
-    return { ok: false, error: error.message };
+    return { ok: false, error: toFriendlyChatError(error.message) };
   }
 
   return { ok: true, data: session.data };
@@ -272,7 +272,7 @@ export async function saveProfileInterests(interests: string[]): Promise<Backend
   });
 
   if (error) {
-    return { ok: false, error: error.message };
+    return { ok: false, error: toFriendlyChatError(error.message) };
   }
 
   return { ok: true, data: null };
@@ -297,7 +297,7 @@ export async function saveDiscoveryPreferences(
   });
 
   if (error) {
-    return { ok: false, error: error.message };
+    return { ok: false, error: toFriendlyChatError(error.message) };
   }
 
   return { ok: true, data: null };
@@ -986,4 +986,34 @@ function estimateLastActiveMinutes(lastSeenAt: string) {
   }
 
   return Math.max(1, Math.round(diff / 60000));
+}
+
+function toFriendlyChatError(message: string) {
+  const normalized = message.toLowerCase();
+
+  if (normalized.includes("recent message request already exists")) {
+    return "이미 최근에 보낸 쪽지 요청이 있어요. 상대의 응답을 기다려 주세요.";
+  }
+
+  if (normalized.includes("hourly message request limit") || normalized.includes("daily message request limit")) {
+    return "오늘 보낼 수 있는 첫 쪽지를 모두 사용했어요. 리워드 탭에서 추가 쪽지권을 확인해 주세요.";
+  }
+
+  if (normalized.includes("conversation message burst limit") || normalized.includes("message rate limit")) {
+    return "짧은 시간에 메시지가 많아요. 잠시 후 다시 보내 주세요.";
+  }
+
+  if (normalized.includes("duplicate message blocked")) {
+    return "같은 메시지를 연속으로 보낼 수 없어요.";
+  }
+
+  if (normalized.includes("contact or address sharing")) {
+    return "전화번호, 주소, 외부 메신저 ID는 초기 대화에서 공유할 수 없어요.";
+  }
+
+  if (normalized.includes("blocked relationship")) {
+    return "차단 관계에서는 쪽지나 메시지를 보낼 수 없어요.";
+  }
+
+  return message;
 }

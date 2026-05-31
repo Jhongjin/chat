@@ -9,6 +9,7 @@
 - 첫 쪽지와 1:1 채팅 MVP 화면
 - 신고/차단, 차단 목록 확인과 차단 해제
 - 메시지 단위 신고와 내 화면에서 메시지 숨김
+- 쪽지/채팅 서버 도배 제한과 반복 메시지 차단
 - 신고 내역과 검토 상태 확인
 - 대화 즐겨찾기와 조용한 시간 알림 설정
 - 대화별 알림 끄기
@@ -74,6 +75,7 @@ EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID=
 - [운영자 신고 검수 RPC](./supabase/migrations/014_admin_moderation_tools.sql)
 - [AdMob SSV 리워드 검증 RPC](./supabase/migrations/015_ad_reward_verification.sql)
 - [메시지 신고 RPC](./supabase/migrations/016_message_report_rpc.sql)
+- [메시지 전송 빈도 제한 RPC](./supabase/migrations/017_message_rate_limits.sql)
 
 ## 출시 전 필수 결정
 
