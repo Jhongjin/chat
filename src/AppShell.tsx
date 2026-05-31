@@ -53,6 +53,7 @@ import {
 import { requestNeighborhoodLocation } from "./services/location";
 import { requestPushRegistration } from "./services/notifications";
 import { exportUserData } from "./services/dataExport";
+import { trackEvent } from "./services/analytics";
 import { showRewardedAd } from "./services/rewardedAds";
 import { colors, radius, shadow, spacing, type } from "./theme";
 import type { ChatMessage, ChatThread, Gender, NearbyProfile, RewardPerk } from "./types";
@@ -534,6 +535,11 @@ export function AppShell() {
 
     setOnboarded(true);
     setOnboardingOpen(false);
+    void trackEvent("onboarding_completed", {
+      hasLocation: profile.permissionGranted,
+      interestCount: selectedInterests.length,
+      radiusKm
+    });
   }
 
   function handleCloseOnboarding() {
@@ -611,6 +617,9 @@ export function AppShell() {
 
     setDiscoveryPauseUntil(saved.data);
     setBackendNotice(saved.data ? "내 동네 노출을 내일까지 숨겼어요" : "내 동네 노출 숨김을 해제했어요");
+    void trackEvent(saved.data ? "discovery_pause_enabled" : "discovery_pause_disabled", {
+      radiusKm
+    });
     if (profile.permissionGranted) {
       void syncNearbyProfiles();
     }
@@ -643,6 +652,9 @@ export function AppShell() {
     }
 
     setPushStatus(quietHoursEnabled ? "쪽지 알림 준비 완료 · 조용한 시간 적용" : "쪽지 알림 준비 완료");
+    void trackEvent("push_enabled", {
+      quietHoursEnabled
+    });
   }
 
   function handleToggleQuietHours() {
@@ -707,6 +719,7 @@ export function AppShell() {
     }));
     setBackendNotice("계정 삭제 요청이 Supabase에 접수됐어요");
     setActiveTab("profile");
+    void trackEvent("account_deletion_requested");
     Alert.alert("삭제 요청 접수", "프로필 노출과 위치 추천을 중지했어요. 운영 보관 정책에 따라 삭제가 처리됩니다.");
   }
 
@@ -736,6 +749,9 @@ export function AppShell() {
       appendMessageToThread(thread.id, sent.data);
       setBackendNotice("Supabase 메시지 전송 완료");
       setComposerText("");
+      void trackEvent("message_sent", {
+        bodyLength: text.length
+      });
       return;
     }
 
@@ -746,6 +762,9 @@ export function AppShell() {
       createdAt: new Date().toISOString()
     });
     setComposerText("");
+    void trackEvent("message_sent", {
+      bodyLength: text.length
+    });
   }
 
   function appendMessageToThread(threadId: string, message: ChatMessage) {
@@ -845,6 +864,9 @@ export function AppShell() {
     setMessageRequestTarget(null);
     setMessageRequestText("");
     setActiveTab("chats");
+    void trackEvent("message_request_sent", {
+      bodyLength: text.length
+    });
     Alert.alert("쪽지 요청을 보냈어요", "상대가 수락하면 대화가 열립니다.");
   }
 
@@ -946,6 +968,7 @@ export function AppShell() {
     setPendingRequests((current) => current.filter((request) => request.peer.id !== thread.participant.id));
     setSelectedThreadId(undefined);
     setSafetyThread(null);
+    void trackEvent("profile_blocked");
     Alert.alert("차단했어요", "상대는 더 이상 추천과 쪽지 목록에 표시되지 않습니다.");
   }
 
@@ -977,6 +1000,9 @@ export function AppShell() {
     }
 
     setSafetyThread(null);
+    void trackEvent("profile_reported", {
+      reason
+    });
     Alert.alert("신고가 접수됐어요", `${reason} 사유로 운영 검토 큐에 등록됩니다.`);
   }
 
@@ -1002,8 +1028,10 @@ export function AppShell() {
 
       updateThreadMute(thread.id, muted.data);
       setBackendNotice(muted.data ? "이 대화 알림을 내일까지 껐어요" : "이 대화 알림을 다시 켰어요");
+      void trackEvent(muted.data ? "conversation_muted" : "conversation_unmuted");
     } else {
       updateThreadMute(thread.id, nextMutedUntil);
+      void trackEvent(nextMutedUntil ? "conversation_muted" : "conversation_unmuted");
     }
 
     Alert.alert(
@@ -1042,6 +1070,11 @@ export function AppShell() {
   }
 
   async function handleExportData() {
+    void trackEvent("data_export_started", {
+      conversationCount: threads.length,
+      reportCount: reportHistory.length
+    });
+
     const exported = await exportUserData({
       blockedProfiles: blockedProfiles.map((profileItem) => ({
         id: profileItem.id,
@@ -1134,6 +1167,9 @@ export function AppShell() {
       }
 
       setAdLoading(false);
+      void trackEvent("ad_reward_claimed", {
+        source: ad.source
+      });
       Alert.alert(
         "보상 지급",
         ad.source === "admob"

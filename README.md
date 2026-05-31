@@ -66,6 +66,7 @@ EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID=
 - [푸시 알림 워커 RPC](./supabase/migrations/010_notification_job_claims.sql)
 - [대화별 알림 끄기 RPC](./supabase/migrations/011_conversation_mute.sql)
 - [신고 내역 조회 RPC](./supabase/migrations/012_report_history.sql)
+- [제품 지표 이벤트 RPC](./supabase/migrations/013_client_events.sql)
 
 ## 출시 전 필수 결정
 
