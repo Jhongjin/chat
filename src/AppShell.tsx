@@ -828,6 +828,14 @@ export function AppShell() {
     );
   }
 
+  function handleLoadDemoThreads() {
+    setThreads(initialThreads);
+    setSelectedThreadId(initialThreads[0]?.id);
+    setHiddenMessageIds([]);
+    setBackendNotice("검수용 샘플 대화 표시 중 - Supabase에는 저장하지 않아요");
+    setActiveTab("chats");
+  }
+
   function handleStartMessage(target: NearbyProfile) {
     const existingThread = threads.find((thread) => thread.participant.id === target.id);
 
@@ -1357,6 +1365,7 @@ export function AppShell() {
             onChangeComposerText={setComposerText}
             onAcceptRequest={handleAcceptRequest}
             onDeclineRequest={handleDeclineRequest}
+            onLoadDemoThreads={handleLoadDemoThreads}
             onOpenMessageSafety={(thread, message) => setMessageSafetyTarget({ message, thread })}
             onSelectThread={setSelectedThreadId}
             onSendMessage={handleSendMessage}
@@ -1725,6 +1734,7 @@ function ChatsScreen({
   onAcceptRequest,
   onChangeComposerText,
   onDeclineRequest,
+  onLoadDemoThreads,
   onOpenMessageSafety,
   onOpenOnboarding,
   onOpenSafety,
@@ -1745,6 +1755,7 @@ function ChatsScreen({
   onAcceptRequest: (request: LocalMessageRequest) => void | Promise<void>;
   onChangeComposerText: (value: string) => void;
   onDeclineRequest: (request: LocalMessageRequest) => void | Promise<void>;
+  onLoadDemoThreads: () => void;
   onOpenMessageSafety: (thread: ChatThread, message: ChatMessage) => void;
   onOpenOnboarding: () => void;
   onOpenSafety: (thread: ChatThread) => void;
@@ -1949,11 +1960,15 @@ function ChatsScreen({
       ) : (
         <ScrollView contentContainerStyle={styles.screenScroll} showsVerticalScrollIndicator={false}>
           <EmptyState
-            actionLabel="프로필 확인"
+            actionLabel={__DEV__ ? "샘플 대화 보기" : "프로필 확인"}
             icon="chatbubbles"
-            onAction={onOpenOnboarding}
+            onAction={__DEV__ ? onLoadDemoThreads : onOpenOnboarding}
             title="아직 열린 대화가 없어요"
-            body="상대가 쪽지 요청을 수락하면 이곳에 안전한 대화방이 열립니다."
+            body={
+              __DEV__
+                ? "검수용 샘플 대화로 채팅 UI, 신고, 숨김, 차단 메뉴를 바로 확인할 수 있어요."
+                : "상대가 쪽지 요청을 수락하면 이곳에 안전한 대화방이 열립니다."
+            }
           />
         </ScrollView>
       )}
