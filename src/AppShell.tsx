@@ -1768,7 +1768,47 @@ function ChatsScreen({
   selectedThread?: ChatThread;
   threads: ChatThread[];
 }) {
+  const [chatSearchQuery, setChatSearchQuery] = useState("");
   const hasThreads = threads.length > 0;
+  const normalizedChatSearch = chatSearchQuery.trim().toLowerCase();
+  const filteredThreads = useMemo(() => {
+    if (!normalizedChatSearch) {
+      return threads;
+    }
+
+    return threads.filter((thread) => {
+      const searchable = [
+        thread.participant.name,
+        thread.participant.neighborhood,
+        thread.participant.intro,
+        ...thread.participant.tags,
+        ...thread.messages.map((message) => message.body)
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      return searchable.includes(normalizedChatSearch);
+    });
+  }, [normalizedChatSearch, threads]);
+  const filteredPendingRequests = useMemo(() => {
+    if (!normalizedChatSearch) {
+      return pendingRequests;
+    }
+
+    return pendingRequests.filter((request) => {
+      const searchable = [
+        request.body,
+        request.peer.name,
+        request.peer.neighborhood,
+        request.status,
+        ...request.peer.tags
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      return searchable.includes(normalizedChatSearch);
+    });
+  }, [normalizedChatSearch, pendingRequests]);
   const visibleMessages = selectedThread
     ? selectedThread.messages.filter((message) => !hiddenMessageIds.includes(message.id))
     : [];
@@ -1792,10 +1832,38 @@ function ChatsScreen({
         </Pressable>
       </View>
 
+      <View style={styles.chatSearchBox}>
+        <Ionicons color={colors.mutedInk} name="search" size={17} />
+        <TextInput
+          accessibilityLabel="대화 검색"
+          onChangeText={setChatSearchQuery}
+          placeholder="이름, 동네, 메시지 검색"
+          placeholderTextColor={colors.mutedInk}
+          style={styles.chatSearchInput}
+          value={chatSearchQuery}
+        />
+        {chatSearchQuery ? (
+          <Pressable
+            accessibilityLabel="대화 검색어 지우기"
+            accessibilityRole="button"
+            onPress={() => setChatSearchQuery("")}
+            style={styles.searchClearButton}
+          >
+            <Ionicons color={colors.mutedInk} name="close" size={16} />
+          </Pressable>
+        ) : null}
+      </View>
+
+      {normalizedChatSearch ? (
+        <Text style={styles.searchResultText}>
+          대화 {filteredThreads.length}개 · 요청 {filteredPendingRequests.length}개
+        </Text>
+      ) : null}
+
       {hasThreads ? (
         <View style={styles.threadRail}>
           <FlatList
-            data={threads}
+            data={filteredThreads}
             horizontal
             keyExtractor={(item) => item.id}
             showsHorizontalScrollIndicator={false}
@@ -1825,10 +1893,10 @@ function ChatsScreen({
         </View>
       ) : null}
 
-      {pendingRequests.length > 0 ? (
+      {filteredPendingRequests.length > 0 ? (
         <View style={styles.pendingPanel}>
-          <SectionHeader title="쪽지 요청함" value={`${pendingRequests.length}개 대기`} />
-          {pendingRequests.map((request) => (
+          <SectionHeader title="쪽지 요청함" value={`${filteredPendingRequests.length}개 대기`} />
+          {filteredPendingRequests.map((request) => (
             <PendingRequestRow
               key={request.id}
               onAccept={onAcceptRequest}
@@ -1836,6 +1904,14 @@ function ChatsScreen({
               request={request}
             />
           ))}
+        </View>
+      ) : null}
+
+      {normalizedChatSearch && filteredThreads.length === 0 && filteredPendingRequests.length === 0 ? (
+        <View style={styles.searchEmptyState}>
+          <Ionicons color={colors.mutedInk} name="search" size={20} />
+          <Text style={styles.panelTitle}>검색 결과가 없어요</Text>
+          <Text style={styles.panelCaption}>다른 이름, 동네, 메시지 단어로 찾아보세요.</Text>
         </View>
       ) : null}
 
@@ -3175,6 +3251,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm
   },
+  chatSearchBox: {
+    alignItems: "center",
+    backgroundColor: colors.white,
+    borderBottomColor: colors.line,
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    minHeight: 52,
+    paddingHorizontal: spacing.lg
+  },
+  chatSearchInput: {
+    color: colors.ink,
+    flex: 1,
+    fontSize: type.body,
+    fontWeight: "700",
+    minHeight: 44,
+    padding: 0
+  },
   checkbox: {
     alignItems: "center",
     backgroundColor: colors.white,
@@ -3610,6 +3704,30 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     gap: spacing.sm,
     padding: spacing.lg
+  },
+  searchClearButton: {
+    alignItems: "center",
+    backgroundColor: colors.canvas,
+    borderRadius: radius.pill,
+    height: 28,
+    justifyContent: "center",
+    width: 28
+  },
+  searchEmptyState: {
+    alignItems: "center",
+    backgroundColor: colors.canvas,
+    borderBottomColor: colors.line,
+    borderBottomWidth: 1,
+    gap: spacing.xs,
+    padding: spacing.lg
+  },
+  searchResultText: {
+    backgroundColor: colors.canvas,
+    color: colors.mutedInk,
+    fontSize: type.caption,
+    fontWeight: "800",
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm
   },
   pendingRow: {
     alignItems: "center",
