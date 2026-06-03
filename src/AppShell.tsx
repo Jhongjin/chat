@@ -240,6 +240,10 @@ export function AppShell() {
       return favoriteGap || (originalOrder.get(left.id) ?? 0) - (originalOrder.get(right.id) ?? 0);
     });
   }, [favoriteThreadIds, threads]);
+  const draftThreadIds = useMemo(
+    () => new Set(Object.entries(messageDrafts).filter(([, text]) => text.trim()).map(([threadId]) => threadId)),
+    [messageDrafts]
+  );
   const sentRequestCount = pendingRequests.filter((request) => request.direction === "sent").length;
   const totalMessageRequestAllowance = baseDailyMessageRequests + extraMessagePasses;
   const remainingMessageRequests = Math.max(0, totalMessageRequestAllowance - sentRequestCount);
@@ -1533,6 +1537,7 @@ export function AppShell() {
           <ChatsScreen
             backendNotice={backendNotice}
             composerText={composerText}
+            draftThreadIds={draftThreadIds}
             favoriteThreadIds={favoriteThreadIds}
             hiddenMessageIds={hiddenMessageIds}
             isBackendLoading={isBackendLoading}
@@ -1908,6 +1913,7 @@ function NeighborRow({
 function ChatsScreen({
   backendNotice,
   composerText,
+  draftThreadIds,
   favoriteThreadIds,
   hiddenMessageIds,
   isBackendLoading,
@@ -1929,6 +1935,7 @@ function ChatsScreen({
 }: {
   backendNotice: string;
   composerText: string;
+  draftThreadIds: Set<string>;
   favoriteThreadIds: string[];
   hiddenMessageIds: string[];
   isBackendLoading: boolean;
@@ -1995,6 +2002,7 @@ function ChatsScreen({
     : [];
   const isConversationOpen = Boolean(selectedThread);
   const composerHasSensitiveContact = containsSensitiveContact(composerText);
+  const threadRailExtraData = `${selectedThread?.id ?? ""}:${Array.from(draftThreadIds).sort().join("|")}:${favoriteThreadIds.join("|")}`;
 
   useEffect(() => {
     if (!selectedThread) {
@@ -2065,31 +2073,42 @@ function ChatsScreen({
         <View style={styles.threadRail}>
           <FlatList
             data={filteredThreads}
+            extraData={threadRailExtraData}
             horizontal
             keyExtractor={(item) => item.id}
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.threadRailContent}
-            renderItem={({ item }) => (
-              <Pressable
-                accessibilityLabel={`${item.participant.name}님과의 대화 열기`}
-                accessibilityRole="button"
-                onPress={() => onSelectThread(item.id)}
-                style={[
-                  styles.threadChip,
-                  selectedThread?.id === item.id ? styles.threadChipActive : undefined
-                ]}
-              >
-                <Avatar color={item.participant.avatarColor} label={item.participant.name} size={34} />
-                <Text style={styles.threadChipText}>{item.participant.name}</Text>
-                {favoriteThreadIds.includes(item.id) ? (
-                  <Ionicons color={colors.yellow} name="star" size={13} />
-                ) : null}
-                {isThreadMuted(item.mutedUntil) ? (
-                  <Ionicons color={colors.mutedInk} name="notifications-off" size={13} />
-                ) : null}
-                {item.unreadCount ? <View style={styles.unreadDot} /> : null}
-              </Pressable>
-            )}
+            renderItem={({ item }) => {
+              const hasDraft = draftThreadIds.has(item.id);
+
+              return (
+                <Pressable
+                  accessibilityLabel={`${item.participant.name}님과의 대화 열기${hasDraft ? ", 작성 중인 메시지 있음" : ""}`}
+                  accessibilityRole="button"
+                  onPress={() => onSelectThread(item.id)}
+                  style={[
+                    styles.threadChip,
+                    selectedThread?.id === item.id ? styles.threadChipActive : undefined
+                  ]}
+                >
+                  <Avatar color={item.participant.avatarColor} label={item.participant.name} size={34} />
+                  <Text style={styles.threadChipText}>{item.participant.name}</Text>
+                  {hasDraft ? (
+                    <View style={styles.threadDraftBadge}>
+                      <Ionicons color={colors.teal} name="create-outline" size={12} />
+                      <Text style={styles.threadDraftText}>작성 중</Text>
+                    </View>
+                  ) : null}
+                  {favoriteThreadIds.includes(item.id) ? (
+                    <Ionicons color={colors.yellow} name="star" size={13} />
+                  ) : null}
+                  {isThreadMuted(item.mutedUntil) ? (
+                    <Ionicons color={colors.mutedInk} name="notifications-off" size={13} />
+                  ) : null}
+                  {item.unreadCount ? <View style={styles.unreadDot} /> : null}
+                </Pressable>
+              );
+            }}
           />
         </View>
       ) : null}
@@ -4818,6 +4837,22 @@ const styles = StyleSheet.create({
     fontSize: type.caption,
     fontWeight: "800",
     paddingRight: spacing.xs
+  },
+  threadDraftBadge: {
+    alignItems: "center",
+    backgroundColor: colors.tealSoft,
+    borderColor: colors.teal,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 2
+  },
+  threadDraftText: {
+    color: colors.teal,
+    fontSize: 10,
+    fontWeight: "900"
   },
   threadRail: {
     backgroundColor: colors.canvas,
