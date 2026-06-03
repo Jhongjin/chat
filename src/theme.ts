@@ -1,3 +1,5 @@
+import type { ViewStyle } from "react-native";
+
 export const colors = {
   ink: "#1C1D1F",
   mutedInk: "#62656B",
@@ -43,10 +45,7 @@ export const type = {
   caption: 13
 };
 
-export const shadow = {
-  shadowColor: colors.ink,
-  shadowOffset: { width: 0, height: 8 },
-  shadowOpacity: 0.08,
-  shadowRadius: 18,
+export const shadow: ViewStyle = {
+  boxShadow: `0 8px 18px ${colors.shadow}`,
   elevation: 4
-};
+} as ViewStyle;

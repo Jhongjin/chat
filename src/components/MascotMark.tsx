@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View, type ViewStyle } from "react-native";
 import { colors, radius } from "../theme";
 
 type MascotMarkProps = {
@@ -59,6 +59,9 @@ export function MascotMark({ mood = "chat", size = "md" }: MascotMarkProps) {
   const box = sizeMap[size];
   const scale = box / sizeMap.md;
   const moodStyle = moodMap[mood];
+  const glowShadow: ViewStyle = {
+    boxShadow: `0 0 ${10 * scale}px ${moodStyle.glow}`
+  } as ViewStyle;
 
   return (
     <View
@@ -101,9 +104,9 @@ export function MascotMark({ mood = "chat", size = "md" }: MascotMarkProps) {
             backgroundColor: moodStyle.glow,
             borderRadius: 9 * scale,
             height: 18 * scale,
-            shadowColor: moodStyle.glow,
             width: 18 * scale
-          }
+          },
+          glowShadow
         ]}
       />
     </View>
@@ -149,11 +152,7 @@ const styles = StyleSheet.create({
   glow: {
     bottom: 14,
     left: 4,
-    position: "absolute",
-    shadowColor: colors.yellow,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.65,
-    shadowRadius: 10
+    position: "absolute"
   },
   mouth: {
     borderBottomColor: colors.ink,
