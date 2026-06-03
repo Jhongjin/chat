@@ -137,7 +137,7 @@ export function AppShell() {
   const [lastLocation, setLastLocation] = useState<LocationDraft | null>(null);
   const [remoteProfiles, setRemoteProfiles] = useState<NearbyProfile[] | null>(null);
   const [backendNotice, setBackendNotice] = useState(
-    canUseBackend() ? "Supabase 연결 준비됨" : "Supabase anon key 입력 전 - 데모 모드"
+    canUseBackend() ? "서비스 연결 준비됨" : "체험 모드로 둘러보는 중이에요"
   );
   const [profile, setProfile] = useState<OnboardingProfile>({
     name: "",
@@ -730,8 +730,8 @@ export function AppShell() {
 
   async function submitAccountDeletion() {
     if (!canUseBackend()) {
-      setDeletionStatus("데모 요청됨");
-      Alert.alert("데모 모드", "Supabase 연결 후 실제 삭제 요청을 저장할 수 있습니다.");
+      setDeletionStatus("체험 요청됨");
+      Alert.alert("체험 모드", "실제 계정 연동 후 삭제 요청을 저장할 수 있어요.");
       return;
     }
 
@@ -832,7 +832,7 @@ export function AppShell() {
     setThreads(initialThreads);
     setSelectedThreadId(initialThreads[0]?.id);
     setHiddenMessageIds([]);
-    setBackendNotice("검수용 샘플 대화 표시 중 - Supabase에는 저장하지 않아요");
+    setBackendNotice("체험용 대화를 불러왔어요");
     setActiveTab("chats");
   }
 
@@ -1535,8 +1535,8 @@ function DiscoverScreen({
       </View>
 
       <View style={styles.backendBand}>
-        <Ionicons color={canUseBackend() ? colors.teal : colors.mutedInk} name="server" size={18} />
-        <Text style={styles.backendText}>{isBackendLoading ? "Supabase 동기화 중..." : backendNotice}</Text>
+        <Ionicons color={canUseBackend() ? colors.teal : colors.mutedInk} name="shield-checkmark" size={18} />
+        <Text style={styles.backendText}>{isBackendLoading ? "새 내용을 확인하는 중..." : formatServiceNotice(backendNotice)}</Text>
       </View>
 
       <View style={styles.radiusPanel}>
@@ -1598,7 +1598,7 @@ function DiscoverScreen({
           <Ionicons color={colors.lilac} name="sparkles" size={19} />
           <View style={styles.fill}>
             <Text style={styles.panelTitle}>추천 기준</Text>
-            <Text style={styles.panelCaption}>공통 관심사, 거리, 최근 활동, 응답률을 함께 봅니다.</Text>
+            <Text style={styles.panelCaption}>공통 관심사, 가까운 거리, 최근 활동을 조용히 참고해요.</Text>
           </View>
         </View>
       </View>
@@ -1672,7 +1672,7 @@ function NeighborRow({
   profile: NearbyProfile;
   selectedInterests: string[];
 }) {
-  const matchScore = calculateMatchScore(profile, selectedInterests);
+  const sharedInterestCount = profile.tags.filter((tag) => selectedInterests.includes(tag)).length;
   const insight = getRecommendationInsight(profile, selectedInterests);
 
   return (
@@ -1691,13 +1691,19 @@ function NeighborRow({
           ) : null}
         </View>
         <Text style={styles.neighborMeta}>
-          {profile.neighborhood} · {formatDistance(profile.distanceKm)} · {profile.lastActiveMinutes}분 전
+          {profile.neighborhood} · {formatDistance(profile.distanceKm)} · {formatLastActive(profile.lastActiveMinutes)}
         </Text>
-        <View style={styles.matchRow}>
-          <View style={styles.matchMeterTrack}>
-            <View style={[styles.matchMeterFill, { width: `${matchScore}%` }]} />
+        <View style={styles.neighborSignalRow}>
+          <View style={styles.neighborSignalPill}>
+            <Ionicons color={colors.teal} name="albums-outline" size={13} />
+            <Text style={styles.neighborSignalText}>
+              {sharedInterestCount > 0 ? `공통 관심사 ${sharedInterestCount}개` : profile.tags[0]}
+            </Text>
           </View>
-          <Text style={styles.matchScore}>{matchScore}% 추천</Text>
+          <View style={styles.neighborSignalPill}>
+            <Ionicons color={colors.lilac} name="flash-outline" size={13} />
+            <Text style={styles.neighborSignalText}>{formatResponseStyle(profile.responseRate)}</Text>
+          </View>
         </View>
         <Text numberOfLines={1} style={styles.recommendReason}>
           {insight}
@@ -1812,49 +1818,56 @@ function ChatsScreen({
   const visibleMessages = selectedThread
     ? selectedThread.messages.filter((message) => !hiddenMessageIds.includes(message.id))
     : [];
+  const isConversationOpen = Boolean(selectedThread);
 
   return (
     <View style={styles.chatScreen}>
-      <View style={styles.chatStatusBand}>
-        <Ionicons color={canUseBackend() ? colors.teal : colors.mutedInk} name="sync" size={18} />
-        <Text style={styles.backendText}>{isBackendLoading ? "대화 동기화 중..." : backendNotice}</Text>
-        <Pressable
-          accessibilityLabel="대화 새로고침"
-          accessibilityRole="button"
-          onPress={onRefreshChats}
-          style={styles.smallIconButton}
-        >
-          {isBackendLoading ? (
-            <ActivityIndicator color={colors.teal} size="small" />
-          ) : (
-            <Ionicons color={colors.teal} name="refresh" size={18} />
-          )}
-        </Pressable>
-      </View>
-
-      <View style={styles.chatSearchBox}>
-        <Ionicons color={colors.mutedInk} name="search" size={17} />
-        <TextInput
-          accessibilityLabel="대화 검색"
-          onChangeText={setChatSearchQuery}
-          placeholder="이름, 동네, 메시지 검색"
-          placeholderTextColor={colors.mutedInk}
-          style={styles.chatSearchInput}
-          value={chatSearchQuery}
-        />
-        {chatSearchQuery ? (
+      {!isConversationOpen ? (
+        <View style={styles.chatStatusBand}>
+          <Ionicons color={canUseBackend() ? colors.teal : colors.mutedInk} name="sync" size={18} />
+          <Text style={styles.backendText}>
+            {isBackendLoading ? "대화를 새로 확인하는 중..." : formatServiceNotice(backendNotice)}
+          </Text>
           <Pressable
-            accessibilityLabel="대화 검색어 지우기"
+            accessibilityLabel="대화 새로고침"
             accessibilityRole="button"
-            onPress={() => setChatSearchQuery("")}
-            style={styles.searchClearButton}
+            onPress={onRefreshChats}
+            style={styles.smallIconButton}
           >
-            <Ionicons color={colors.mutedInk} name="close" size={16} />
+            {isBackendLoading ? (
+              <ActivityIndicator color={colors.teal} size="small" />
+            ) : (
+              <Ionicons color={colors.teal} name="refresh" size={18} />
+            )}
           </Pressable>
-        ) : null}
-      </View>
+        </View>
+      ) : null}
 
-      {normalizedChatSearch ? (
+      {!isConversationOpen ? (
+        <View style={styles.chatSearchBox}>
+          <Ionicons color={colors.mutedInk} name="search" size={17} />
+          <TextInput
+            accessibilityLabel="대화 검색"
+            onChangeText={setChatSearchQuery}
+            placeholder="이름, 동네, 메시지 검색"
+            placeholderTextColor={colors.mutedInk}
+            style={styles.chatSearchInput}
+            value={chatSearchQuery}
+          />
+          {chatSearchQuery ? (
+            <Pressable
+              accessibilityLabel="대화 검색어 지우기"
+              accessibilityRole="button"
+              onPress={() => setChatSearchQuery("")}
+              style={styles.searchClearButton}
+            >
+              <Ionicons color={colors.mutedInk} name="close" size={16} />
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
+
+      {!isConversationOpen && normalizedChatSearch ? (
         <Text style={styles.searchResultText}>
           대화 {filteredThreads.length}개 · 요청 {filteredPendingRequests.length}개
         </Text>
@@ -1907,7 +1920,7 @@ function ChatsScreen({
         </View>
       ) : null}
 
-      {normalizedChatSearch && filteredThreads.length === 0 && filteredPendingRequests.length === 0 ? (
+      {!isConversationOpen && normalizedChatSearch && filteredThreads.length === 0 && filteredPendingRequests.length === 0 ? (
         <View style={styles.searchEmptyState}>
           <Ionicons color={colors.mutedInk} name="search" size={20} />
           <Text style={styles.panelTitle}>검색 결과가 없어요</Text>
@@ -1922,7 +1935,8 @@ function ChatsScreen({
             <View style={styles.fill}>
               <Text style={styles.panelTitle}>{selectedThread.participant.name}</Text>
               <Text style={styles.panelCaption}>
-                {selectedThread.participant.neighborhood} · {formatDistance(selectedThread.participant.distanceKm)}
+                {selectedThread.participant.neighborhood} · {formatDistance(selectedThread.participant.distanceKm)} ·{" "}
+                {formatLastActive(selectedThread.participant.lastActiveMinutes)}
               </Text>
             </View>
             <Pressable
@@ -1963,7 +1977,30 @@ function ChatsScreen({
             </Pressable>
           </View>
 
-          <ScrollView contentContainerStyle={styles.messageList} showsVerticalScrollIndicator={false}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.chatContextRail}
+            contentContainerStyle={styles.chatContextContent}
+          >
+            <ChatContextPill icon="location-outline" label={`${selectedThread.participant.neighborhood} 근처`} />
+            <ChatContextPill icon="navigate-outline" label={formatDistance(selectedThread.participant.distanceKm)} />
+            <ChatContextPill
+              icon="chatbubble-ellipses-outline"
+              label={formatResponseStyle(selectedThread.participant.responseRate)}
+            />
+            <ChatContextPill
+              icon={selectedThread.participant.verified ? "shield-checkmark" : "shield-outline"}
+              label={selectedThread.participant.verified ? "인증 프로필" : "안전 대화"}
+              tone="safe"
+            />
+          </ScrollView>
+
+          <ScrollView
+            contentContainerStyle={styles.messageList}
+            showsVerticalScrollIndicator={false}
+            style={styles.messageScroll}
+          >
             {visibleMessages.map((message) => {
               const mine = message.authorId === "me";
 
@@ -1979,9 +2016,14 @@ function ChatsScreen({
                       <Ionicons color={colors.danger} name="flag-outline" size={15} />
                     </Pressable>
                   ) : null}
-                  <View style={[styles.messageBubble, mine ? styles.messageMine : styles.messageOther]}>
-                    <Text style={[styles.messageText, mine ? styles.messageTextMine : undefined]}>
-                      {message.body}
+                  <View style={[styles.messageBubbleStack, mine ? styles.messageBubbleStackMine : undefined]}>
+                    <View style={[styles.messageBubble, mine ? styles.messageMine : styles.messageOther]}>
+                      <Text style={[styles.messageText, mine ? styles.messageTextMine : undefined]}>
+                        {message.body}
+                      </Text>
+                    </View>
+                    <Text style={[styles.messageMetaText, mine ? styles.messageMetaTextMine : undefined]}>
+                      {formatMessageTime(message.createdAt)}
                     </Text>
                   </View>
                 </View>
@@ -2014,6 +2056,11 @@ function ChatsScreen({
             ))}
           </ScrollView>
 
+          <View style={styles.composerSafetyHint}>
+            <Ionicons color={colors.lilac} name="shield-checkmark" size={15} />
+            <Text style={styles.composerSafetyText}>연락처와 정확한 주소는 충분히 신뢰가 생긴 뒤 공유하세요.</Text>
+          </View>
+
           <View style={styles.composer}>
             <TextInput
               multiline
@@ -2036,13 +2083,13 @@ function ChatsScreen({
       ) : (
         <ScrollView contentContainerStyle={styles.screenScroll} showsVerticalScrollIndicator={false}>
           <EmptyState
-            actionLabel={__DEV__ ? "샘플 대화 보기" : "프로필 확인"}
+            actionLabel={__DEV__ ? "체험 대화 보기" : "프로필 확인"}
             icon="chatbubbles"
             onAction={__DEV__ ? onLoadDemoThreads : onOpenOnboarding}
             title="아직 열린 대화가 없어요"
             body={
               __DEV__
-                ? "검수용 샘플 대화로 채팅 UI, 신고, 숨김, 차단 메뉴를 바로 확인할 수 있어요."
+                ? "채팅 UI, 신고, 숨김, 차단 흐름을 먼저 살펴볼 수 있어요."
                 : "상대가 쪽지 요청을 수락하면 이곳에 안전한 대화방이 열립니다."
             }
           />
@@ -2146,7 +2193,7 @@ function RewardsScreen({
         <Text style={styles.earnButtonText}>{isAdLoading ? "광고 확인 중" : "리워드 광고 보고 1 크레딧 받기"}</Text>
       </Pressable>
 
-      <SectionHeader title="사용 가능한 혜택" value="AdMob 준비됨" />
+      <SectionHeader title="사용 가능한 혜택" value="오늘 3회까지" />
 
       <View style={styles.rewardList}>
         {rewardPerks.map((perk) => (
@@ -2967,6 +3014,25 @@ function SectionHeader({ title, value }: { title: string; value: string }) {
   );
 }
 
+function ChatContextPill({
+  icon,
+  label,
+  tone = "neutral"
+}: {
+  icon: IconName;
+  label: string;
+  tone?: "neutral" | "safe";
+}) {
+  const safe = tone === "safe";
+
+  return (
+    <View style={[styles.chatContextPill, safe ? styles.chatContextPillSafe : undefined]}>
+      <Ionicons color={safe ? colors.teal : colors.mutedInk} name={icon} size={14} />
+      <Text style={[styles.chatContextText, safe ? styles.chatContextTextSafe : undefined]}>{label}</Text>
+    </View>
+  );
+}
+
 function Avatar({ color, label, size = 48 }: { color: string; label: string; size?: number }) {
   return (
     <View style={[styles.avatar, { backgroundColor: color, height: size, width: size }]}>
@@ -3031,18 +3097,18 @@ function getRecommendationInsight(profile: NearbyProfile, selectedInterests: str
   const sharedInterests = profile.tags.filter((tag) => selectedInterests.includes(tag));
 
   if (sharedInterests.length > 0) {
-    return `공통 관심사 ${sharedInterests.slice(0, 2).join(", ")} · 응답률 ${profile.responseRate}%`;
+    return `공통 관심사 ${sharedInterests.slice(0, 2).join(", ")} · ${formatResponseStyle(profile.responseRate)}`;
   }
 
   if (profile.distanceKm <= 1) {
-    return `아주 가까운 거리 · 응답률 ${profile.responseRate}%`;
+    return `아주 가까운 거리 · ${formatResponseStyle(profile.responseRate)}`;
   }
 
   if (profile.lastActiveMinutes <= 15) {
-    return `최근 활동 중 · 응답률 ${profile.responseRate}%`;
+    return `최근 활동 중 · ${formatResponseStyle(profile.responseRate)}`;
   }
 
-  return `관심사 확장 추천 · 응답률 ${profile.responseRate}%`;
+  return `관심사 확장 추천 · ${formatResponseStyle(profile.responseRate)}`;
 }
 
 function getIcebreakers(target: NearbyProfile) {
@@ -3095,6 +3161,98 @@ function formatDiscoveryPause(pauseUntil: string | null) {
   const minute = String(until.getMinutes()).padStart(2, "0");
 
   return `${until.getMonth() + 1}/${until.getDate()} ${hour}:${minute}까지`;
+}
+
+function formatLastActive(minutes: number) {
+  if (minutes < 5) {
+    return "방금 활동";
+  }
+
+  if (minutes < 60) {
+    return `${minutes}분 전 활동`;
+  }
+
+  return `${Math.round(minutes / 60)}시간 전 활동`;
+}
+
+function formatMessageTime(createdAt: string) {
+  const date = new Date(createdAt);
+
+  if (Number.isNaN(date.getTime())) {
+    return "전송 시간 확인 중";
+  }
+
+  const hour = String(date.getHours()).padStart(2, "0");
+  const minute = String(date.getMinutes()).padStart(2, "0");
+
+  return `${hour}:${minute}`;
+}
+
+function formatResponseStyle(responseRate: number) {
+  if (responseRate >= 90) {
+    return "응답 빠른 편";
+  }
+
+  if (responseRate >= 80) {
+    return "대화 이어가기 좋아요";
+  }
+
+  if (responseRate >= 65) {
+    return "천천히 답하는 편";
+  }
+
+  return "답장이 느릴 수 있어요";
+}
+
+function formatServiceNotice(notice: string) {
+  if (notice.includes("체험") || notice.includes("anon key") || notice.includes("데모")) {
+    return "체험 모드로 둘러보는 중이에요";
+  }
+
+  if (notice.includes("근처 친구 동기화 완료")) {
+    return "근처 친구를 새로 확인했어요";
+  }
+
+  if (notice.includes("아직 근처 친구가 없어요")) {
+    return "아직 근처 친구가 없어요";
+  }
+
+  if (notice.includes("대화/요청함 동기화 완료")) {
+    return "대화와 요청함을 새로 확인했어요";
+  }
+
+  if (notice.includes("프로필 저장 완료")) {
+    return "프로필이 저장됐어요. 위치를 허용하면 추천이 더 정확해져요.";
+  }
+
+  if (notice.includes("메시지 전송 완료")) {
+    return "메시지를 보냈어요";
+  }
+
+  if (notice.includes("쪽지 요청 저장 완료")) {
+    return "쪽지 요청을 보냈어요";
+  }
+
+  if (notice.includes("대화방 생성 완료")) {
+    return "대화방이 열렸어요";
+  }
+
+  if (notice.includes("차단 해제 완료")) {
+    return "차단을 해제했어요";
+  }
+
+  if (notice.includes("리워드 기록 완료")) {
+    return "리워드가 반영됐어요";
+  }
+
+  if (
+    notice.includes("Supabase") &&
+    (notice.includes("필요") || notice.includes("failed") || notice.includes("not configured"))
+  ) {
+    return "새 내용을 반영하지 못했어요. 잠시 뒤 다시 시도해 주세요.";
+  }
+
+  return notice.replace(/Supabase에/g, "서비스에").replace(/Supabase\s*/g, "서비스 ").replace(/AdMob/g, "리워드 광고");
 }
 
 function formatReportDate(createdAt: string) {
@@ -3237,6 +3395,43 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md
   },
+  chatContextContent: {
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm
+  },
+  chatContextPill: {
+    alignItems: "center",
+    backgroundColor: colors.white,
+    borderColor: colors.line,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.xs,
+    height: 34,
+    minHeight: 34,
+    paddingHorizontal: spacing.md
+  },
+  chatContextPillSafe: {
+    backgroundColor: colors.tealSoft,
+    borderColor: colors.teal
+  },
+  chatContextRail: {
+    backgroundColor: colors.paper,
+    borderBottomColor: colors.line,
+    borderBottomWidth: 1,
+    height: 54,
+    minHeight: 50
+  },
+  chatContextText: {
+    color: colors.mutedInk,
+    fontSize: 12,
+    fontWeight: "800"
+  },
+  chatContextTextSafe: {
+    color: colors.teal
+  },
   chatScreen: {
     flex: 1
   },
@@ -3302,6 +3497,24 @@ const styles = StyleSheet.create({
     minHeight: 44,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md
+  },
+  composerSafetyHint: {
+    alignItems: "center",
+    backgroundColor: colors.paper,
+    borderTopColor: colors.line,
+    borderTopWidth: 1,
+    flexDirection: "row",
+    gap: spacing.xs,
+    minHeight: 38,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.xs
+  },
+  composerSafetyText: {
+    color: colors.mutedInk,
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "800",
+    lineHeight: 17
   },
   disabledButton: {
     opacity: 0.42
@@ -3526,9 +3739,15 @@ const styles = StyleSheet.create({
   },
   messageBubble: {
     borderRadius: radius.lg,
-    maxWidth: "82%",
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md
+  },
+  messageBubbleStack: {
+    gap: spacing.xs,
+    maxWidth: "82%"
+  },
+  messageBubbleStackMine: {
+    alignItems: "flex-end"
   },
   messageButton: {
     alignItems: "center",
@@ -3541,6 +3760,16 @@ const styles = StyleSheet.create({
   },
   messageList: {
     padding: spacing.lg
+  },
+  messageMetaText: {
+    color: colors.mutedInk,
+    fontSize: 11,
+    fontWeight: "800",
+    lineHeight: 14,
+    paddingHorizontal: spacing.xs
+  },
+  messageMetaTextMine: {
+    textAlign: "right"
   },
   messageMine: {
     backgroundColor: colors.teal
@@ -3566,6 +3795,9 @@ const styles = StyleSheet.create({
   },
   messageRowMine: {
     justifyContent: "flex-end"
+  },
+  messageScroll: {
+    flex: 1
   },
   messageSafetyButton: {
     alignItems: "center",
@@ -3647,6 +3879,25 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: spacing.md,
     padding: spacing.md
+  },
+  neighborSignalPill: {
+    alignItems: "center",
+    backgroundColor: colors.canvas,
+    borderRadius: radius.pill,
+    flexDirection: "row",
+    gap: spacing.xs,
+    minHeight: 28,
+    paddingHorizontal: spacing.sm
+  },
+  neighborSignalRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.xs
+  },
+  neighborSignalText: {
+    color: colors.ink,
+    fontSize: 11,
+    fontWeight: "800"
   },
   neighborTopLine: {
     alignItems: "center",
@@ -3822,16 +4073,19 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
     borderTopColor: colors.line,
     borderTopWidth: 1,
+    height: 62,
     paddingVertical: spacing.sm
   },
   quickReplyChip: {
     backgroundColor: colors.tealSoft,
     borderRadius: radius.pill,
+    height: 40,
     minHeight: 40,
     justifyContent: "center",
     paddingHorizontal: spacing.md
   },
   quickReplyContent: {
+    alignItems: "center",
     gap: spacing.sm,
     paddingHorizontal: spacing.md
   },
@@ -4043,7 +4297,7 @@ const styles = StyleSheet.create({
   screenScroll: {
     gap: spacing.lg,
     padding: spacing.lg,
-    paddingBottom: 112
+    paddingBottom: spacing.lg
   },
   sectionEyebrow: {
     color: colors.mutedInk,
@@ -4188,13 +4442,12 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
     borderRadius: 26,
     borderWidth: 1,
-    bottom: spacing.lg,
     flexDirection: "row",
     gap: spacing.xs,
-    left: spacing.lg,
+    marginBottom: spacing.lg,
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.sm,
     padding: spacing.sm,
-    position: "absolute",
-    right: spacing.lg,
     ...shadow
   },
   tabIconWrap: {
