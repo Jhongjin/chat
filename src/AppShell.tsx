@@ -1545,6 +1545,7 @@ export function AppShell() {
             onChangeInterest={setSelectedInterest}
             onOpenOnboarding={() => setOnboardingOpen(true)}
             onOpenProfile={() => setActiveTab("profile")}
+            onOpenRewards={() => setActiveTab("rewards")}
             onStartMessage={handleStartMessage}
             onRefreshLocation={handleLocate}
             onUseDemoLocation={handleUseDemoLocation}
@@ -1681,6 +1682,7 @@ function DiscoverScreen({
   onChangeRadius,
   onOpenOnboarding,
   onOpenProfile,
+  onOpenRewards,
   onRefreshLocation,
   onStartMessage,
   onUseDemoLocation,
@@ -1702,6 +1704,7 @@ function DiscoverScreen({
   onChangeRadius: (radiusKm: number) => void;
   onOpenOnboarding: () => void;
   onOpenProfile: () => void;
+  onOpenRewards: () => void;
   onRefreshLocation: () => void;
   onStartMessage: (profile: NearbyProfile) => void;
   onUseDemoLocation: () => void;
@@ -1849,7 +1852,9 @@ function DiscoverScreen({
         <View style={styles.profileList}>
           {profiles.map((profile) => (
             <NeighborRow
+              canStartMessage={remainingMessageRequests > 0}
               key={profile.id}
+              onNeedMessagePass={onOpenRewards}
               onMessage={onStartMessage}
               profile={profile}
               selectedInterests={selectedInterests}
@@ -1872,10 +1877,14 @@ function DiscoverScreen({
 }
 
 function NeighborRow({
+  canStartMessage,
+  onNeedMessagePass,
   onMessage,
   profile,
   selectedInterests
 }: {
+  canStartMessage: boolean;
+  onNeedMessagePass: () => void;
   onMessage: (profile: NearbyProfile) => void;
   profile: NearbyProfile;
   selectedInterests: string[];
@@ -1884,6 +1893,11 @@ function NeighborRow({
   const insight = getRecommendationInsight(profile, selectedInterests);
   const visibleTags = profile.tags.slice(0, 3);
   const hiddenTagCount = Math.max(0, profile.tags.length - visibleTags.length);
+  const actionIcon: IconName = canStartMessage ? "chatbubble-ellipses" : "flash";
+  const actionLabel = canStartMessage
+    ? `${profile.name}님에게 첫 쪽지 요청 보내기`
+    : "쪽지권을 받으러 리워드 탭 열기";
+  const actionText = canStartMessage ? "첫 쪽지" : "쪽지권 받기";
 
   return (
     <View style={styles.neighborRow}>
@@ -1935,13 +1949,19 @@ function NeighborRow({
             ) : null}
           </View>
           <Pressable
-            accessibilityLabel={`${profile.name}님에게 첫 쪽지 요청 보내기`}
+            accessibilityLabel={actionLabel}
             accessibilityRole="button"
-            onPress={() => onMessage(profile)}
-            style={({ pressed }) => [styles.neighborMessageButton, pressed && styles.pressed]}
+            onPress={() => (canStartMessage ? onMessage(profile) : onNeedMessagePass())}
+            style={({ pressed }) => [
+              styles.neighborMessageButton,
+              !canStartMessage ? styles.neighborRewardButton : undefined,
+              pressed && styles.pressed
+            ]}
           >
-            <Ionicons color={colors.white} name="chatbubble-ellipses" size={16} />
-            <Text style={styles.neighborMessageText}>첫 쪽지</Text>
+            <Ionicons color={canStartMessage ? colors.white : colors.ink} name={actionIcon} size={16} />
+            <Text style={[styles.neighborMessageText, !canStartMessage ? styles.neighborRewardText : undefined]}>
+              {actionText}
+            </Text>
           </Pressable>
         </View>
       </View>
@@ -4248,6 +4268,12 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: type.caption,
     fontWeight: "900"
+  },
+  neighborRewardButton: {
+    backgroundColor: colors.yellow
+  },
+  neighborRewardText: {
+    color: colors.ink
   },
   neighborMeta: {
     color: colors.mutedInk,
