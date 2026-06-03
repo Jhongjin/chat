@@ -1865,6 +1865,7 @@ function ChatsScreen({
     ? selectedThread.messages.filter((message) => !hiddenMessageIds.includes(message.id))
     : [];
   const isConversationOpen = Boolean(selectedThread);
+  const composerHasSensitiveContact = containsSensitiveContact(composerText);
 
   useEffect(() => {
     if (!selectedThread) {
@@ -2116,9 +2117,17 @@ function ChatsScreen({
             ))}
           </ScrollView>
 
-          <View style={styles.composerSafetyHint}>
-            <Ionicons color={colors.lilac} name="shield-checkmark" size={15} />
-            <Text style={styles.composerSafetyText}>연락처와 정확한 주소는 충분히 신뢰가 생긴 뒤 공유하세요.</Text>
+          <View style={[styles.composerSafetyHint, composerHasSensitiveContact ? styles.composerSafetyHintWarning : undefined]}>
+            <Ionicons
+              color={composerHasSensitiveContact ? colors.danger : colors.lilac}
+              name={composerHasSensitiveContact ? "alert-circle" : "shield-checkmark"}
+              size={15}
+            />
+            <Text style={[styles.composerSafetyText, composerHasSensitiveContact ? styles.composerSafetyTextWarning : undefined]}>
+              {composerHasSensitiveContact
+                ? "전화번호, 정확한 주소, 외부 메신저 ID는 아직 보낼 수 없어요."
+                : "연락처와 정확한 주소는 충분히 신뢰가 생긴 뒤 공유하세요."}
+            </Text>
           </View>
 
           <View style={styles.composer}>
@@ -2131,10 +2140,11 @@ function ChatsScreen({
               value={composerText}
             />
             <Pressable
-              accessibilityLabel="메시지 전송"
+              accessibilityLabel={composerHasSensitiveContact ? "민감 정보가 포함되어 메시지를 보낼 수 없음" : "메시지 전송"}
               accessibilityRole="button"
+              disabled={composerHasSensitiveContact}
               onPress={() => onSendMessage(selectedThread)}
-              style={styles.sendButton}
+              style={[styles.sendButton, composerHasSensitiveContact ? styles.sendButtonDisabled : undefined]}
             >
               <Ionicons color={colors.white} name="send" size={18} />
             </Pressable>
@@ -2621,6 +2631,8 @@ function MessageRequestModal({
   target: NearbyProfile | null;
   text: string;
 }) {
+  const requestHasSensitiveContact = containsSensitiveContact(text);
+
   return (
     <Modal animationType="slide" onRequestClose={onClose} transparent visible={Boolean(target)}>
       <View style={styles.modalBackdrop}>
@@ -2650,10 +2662,16 @@ function MessageRequestModal({
                 상대가 수락하면 채팅방이 열립니다. 같은 문구 반복과 불편한 표현은 제한돼요.
               </Text>
 
-              <View style={styles.requestSafetyBand}>
-                <Ionicons color={colors.teal} name="shield-checkmark" size={19} />
-                <Text style={styles.requestSafetyText}>
-                  첫 대화는 앱 안에서만 시작해요. 연락처, 상세 주소, 외부 메신저 ID는 자동으로 막습니다.
+              <View style={[styles.requestSafetyBand, requestHasSensitiveContact ? styles.requestSafetyBandWarning : undefined]}>
+                <Ionicons
+                  color={requestHasSensitiveContact ? colors.danger : colors.teal}
+                  name={requestHasSensitiveContact ? "alert-circle" : "shield-checkmark"}
+                  size={19}
+                />
+                <Text style={[styles.requestSafetyText, requestHasSensitiveContact ? styles.requestSafetyTextWarning : undefined]}>
+                  {requestHasSensitiveContact
+                    ? "전화번호, 상세 주소, 외부 메신저 ID가 포함된 첫 쪽지는 보낼 수 없어요."
+                    : "첫 대화는 앱 안에서만 시작해요. 연락처, 상세 주소, 외부 메신저 ID는 자동으로 막습니다."}
                 </Text>
               </View>
 
@@ -2685,7 +2703,13 @@ function MessageRequestModal({
               />
               <Text style={styles.characterCount}>{text.trim().length}/160</Text>
 
-              <Pressable accessibilityRole="button" onPress={onSend} style={styles.primaryButton}>
+              <Pressable
+                accessibilityLabel={requestHasSensitiveContact ? "민감 정보가 포함되어 쪽지 요청을 보낼 수 없음" : "쪽지 요청 보내기"}
+                accessibilityRole="button"
+                disabled={requestHasSensitiveContact}
+                onPress={onSend}
+                style={[styles.primaryButton, requestHasSensitiveContact ? styles.disabledButton : undefined]}
+              >
                 <Text style={styles.primaryButtonText}>쪽지 요청 보내기</Text>
               </Pressable>
             </>
@@ -3604,12 +3628,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.xs
   },
+  composerSafetyHintWarning: {
+    backgroundColor: "#FCE8E8",
+    borderTopColor: "#F1B7B7"
+  },
   composerSafetyText: {
     color: colors.mutedInk,
     flex: 1,
     fontSize: 12,
     fontWeight: "800",
     lineHeight: 17
+  },
+  composerSafetyTextWarning: {
+    color: colors.danger
   },
   disabledButton: {
     opacity: 0.42
@@ -4333,12 +4364,18 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     padding: spacing.md
   },
+  requestSafetyBandWarning: {
+    backgroundColor: "#FCE8E8"
+  },
   requestSafetyText: {
     color: colors.ink,
     flex: 1,
     fontSize: type.caption,
     fontWeight: "800",
     lineHeight: 19
+  },
+  requestSafetyTextWarning: {
+    color: colors.danger
   },
   requestInput: {
     backgroundColor: colors.white,
@@ -4451,6 +4488,10 @@ const styles = StyleSheet.create({
     height: 48,
     justifyContent: "center",
     width: 48
+  },
+  sendButtonDisabled: {
+    backgroundColor: colors.mutedInk,
+    opacity: 0.5
   },
   secondaryButton: {
     alignItems: "center",
