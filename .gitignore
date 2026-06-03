@@ -4,6 +4,7 @@
 node_modules/
 .tools/
 dist/
+dist-android/
 web-build/
 *.log
 .env
