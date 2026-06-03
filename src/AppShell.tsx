@@ -1857,6 +1857,8 @@ function NeighborRow({
 }) {
   const sharedInterestCount = profile.tags.filter((tag) => selectedInterests.includes(tag)).length;
   const insight = getRecommendationInsight(profile, selectedInterests);
+  const visibleTags = profile.tags.slice(0, 3);
+  const hiddenTagCount = Math.max(0, profile.tags.length - visibleTags.length);
 
   return (
     <View style={styles.neighborRow}>
@@ -1891,25 +1893,33 @@ function NeighborRow({
         <Text numberOfLines={1} style={styles.recommendReason}>
           {insight}
         </Text>
-        <Text numberOfLines={2} style={styles.neighborIntro}>
+        <Text numberOfLines={1} style={styles.neighborIntro}>
           {profile.intro}
         </Text>
-        <View style={styles.tagRow}>
-          {profile.tags.map((tag) => (
-            <View key={tag} style={styles.tag}>
-              <Text style={styles.tagText}>{tag}</Text>
-            </View>
-          ))}
+        <View style={styles.neighborActionRow}>
+          <View style={styles.neighborTagSummary}>
+            {visibleTags.map((tag) => (
+              <View key={tag} style={styles.tag}>
+                <Text style={styles.tagText}>{tag}</Text>
+              </View>
+            ))}
+            {hiddenTagCount ? (
+              <View style={styles.tagMuted}>
+                <Text style={styles.tagMutedText}>+{hiddenTagCount}</Text>
+              </View>
+            ) : null}
+          </View>
+          <Pressable
+            accessibilityLabel={`${profile.name}님에게 첫 쪽지 요청 보내기`}
+            accessibilityRole="button"
+            onPress={() => onMessage(profile)}
+            style={({ pressed }) => [styles.neighborMessageButton, pressed && styles.pressed]}
+          >
+            <Ionicons color={colors.white} name="chatbubble-ellipses" size={16} />
+            <Text style={styles.neighborMessageText}>첫 쪽지</Text>
+          </Pressable>
         </View>
       </View>
-      <Pressable
-        accessibilityLabel={`${profile.name}님에게 쪽지 요청 보내기`}
-        accessibilityRole="button"
-        onPress={() => onMessage(profile)}
-        style={({ pressed }) => [styles.messageButton, pressed && styles.pressed]}
-      >
-        <Ionicons color={colors.white} name="chatbubble-ellipses" size={19} />
-      </Pressable>
     </View>
   );
 }
@@ -4066,15 +4076,6 @@ const styles = StyleSheet.create({
   messageBubbleStackMine: {
     alignItems: "flex-end"
   },
-  messageButton: {
-    alignItems: "center",
-    alignSelf: "center",
-    backgroundColor: colors.teal,
-    borderRadius: radius.pill,
-    height: 48,
-    justifyContent: "center",
-    width: 48
-  },
   messageList: {
     flexGrow: 1,
     justifyContent: "flex-end",
@@ -4173,12 +4174,34 @@ const styles = StyleSheet.create({
   },
   neighborBody: {
     flex: 1,
-    gap: 5
+    gap: spacing.xs
+  },
+  neighborActionRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm,
+    justifyContent: "space-between",
+    marginTop: 2
   },
   neighborIntro: {
     color: colors.ink,
     fontSize: type.body,
-    lineHeight: 20
+    lineHeight: 20,
+    paddingRight: spacing.xs
+  },
+  neighborMessageButton: {
+    alignItems: "center",
+    backgroundColor: colors.teal,
+    borderRadius: radius.pill,
+    flexDirection: "row",
+    gap: spacing.xs,
+    minHeight: 40,
+    paddingHorizontal: spacing.md
+  },
+  neighborMessageText: {
+    color: colors.white,
+    fontSize: type.caption,
+    fontWeight: "900"
   },
   neighborMeta: {
     color: colors.mutedInk,
@@ -4217,6 +4240,13 @@ const styles = StyleSheet.create({
     color: colors.ink,
     fontSize: 11,
     fontWeight: "800"
+  },
+  neighborTagSummary: {
+    alignItems: "center",
+    flex: 1,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.xs
   },
   neighborTopLine: {
     alignItems: "center",
@@ -4811,16 +4841,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     paddingVertical: 5
   },
-  tagRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.xs,
-    marginTop: 2
-  },
   tagText: {
     color: colors.mutedInk,
     fontSize: 11,
     fontWeight: "800"
+  },
+  tagMuted: {
+    backgroundColor: colors.tealSoft,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 5
+  },
+  tagMutedText: {
+    color: colors.teal,
+    fontSize: 11,
+    fontWeight: "900"
   },
   threadChip: {
     alignItems: "center",
