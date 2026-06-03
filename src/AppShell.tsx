@@ -2406,13 +2406,18 @@ function RewardsScreen({
         <View style={styles.fill}>
           <Text style={styles.rewardTitle}>{credits} 크레딧</Text>
           <Text style={styles.rewardCaption}>
-            선택한 보상에서만 광고를 보여주고, 오늘 {earnedToday}/3회 지급했어요. 추가 쪽지권 {extraMessagePasses}개 보유 중.
+            쪽지권, 추천 반경, 프로필 강조처럼 필요한 혜택을 먼저 고르고 보상 확인 직전에만 광고를 보여줘요.
           </Text>
         </View>
       </View>
 
+      <View style={styles.rewardSummaryGrid}>
+        <RewardSummaryPill icon="chatbubble-ellipses" label="추가 쪽지권" value={`${extraMessagePasses}개`} />
+        <RewardSummaryPill icon="calendar-clear" label="오늘 받은 보상" value={`${earnedToday}/3`} />
+      </View>
+
       <Pressable
-        accessibilityLabel="리워드 광고 보고 크레딧 받기"
+        accessibilityLabel="보상 확인하고 1 크레딧 받기"
         accessibilityRole="button"
         disabled={isAdLoading}
         onPress={onEarnCredit}
@@ -2423,10 +2428,10 @@ function RewardsScreen({
         ) : (
           <Ionicons color={colors.white} name="play-circle" size={21} />
         )}
-        <Text style={styles.earnButtonText}>{isAdLoading ? "광고 확인 중" : "리워드 광고 보고 1 크레딧 받기"}</Text>
+        <Text style={styles.earnButtonText}>{isAdLoading ? "보상 확인 중" : "1 크레딧 받기"}</Text>
       </Pressable>
 
-      <SectionHeader title="사용 가능한 혜택" value="오늘 3회까지" />
+      <SectionHeader title="사용 가능한 혜택" value={`보유 ${credits} 크레딧`} />
 
       <View style={styles.rewardList}>
         {rewardPerks.map((perk) => (
@@ -2434,6 +2439,20 @@ function RewardsScreen({
         ))}
       </View>
     </ScrollView>
+  );
+}
+
+function RewardSummaryPill({ icon, label, value }: { icon: IconName; label: string; value: string }) {
+  return (
+    <View style={styles.rewardSummaryPill}>
+      <View style={styles.rewardSummaryIcon}>
+        <Ionicons color={colors.teal} name={icon} size={17} />
+      </View>
+      <View style={styles.fill}>
+        <Text style={styles.rewardSummaryLabel}>{label}</Text>
+        <Text style={styles.rewardSummaryValue}>{value}</Text>
+      </View>
+    </View>
   );
 }
 
@@ -2452,6 +2471,7 @@ function RewardRow({
     lilac: colors.lilac,
     yellow: colors.yellow
   }[perk.accent];
+  const canUseReward = credits >= perk.cost;
 
   return (
     <View style={styles.rewardRow}>
@@ -2461,10 +2481,11 @@ function RewardRow({
         <Text style={styles.panelCaption}>{perk.description}</Text>
       </View>
       <Pressable
-        accessibilityLabel={`${perk.title} 사용`}
+        accessibilityLabel={canUseReward ? `${perk.title} 사용` : `${perk.title} 사용에는 크레딧이 더 필요함`}
         accessibilityRole="button"
+        disabled={!canUseReward}
         onPress={() => onUseReward(perk)}
-        style={[styles.rewardUseButton, credits < perk.cost ? styles.disabledButton : undefined]}
+        style={[styles.rewardUseButton, !canUseReward ? styles.disabledButton : undefined]}
       >
         <Text style={styles.rewardUseText}>{perk.cost}</Text>
         <Ionicons color={colors.white} name="flash" size={14} />
@@ -4550,6 +4571,41 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: spacing.md,
     padding: spacing.lg
+  },
+  rewardSummaryGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm
+  },
+  rewardSummaryIcon: {
+    alignItems: "center",
+    backgroundColor: colors.tealSoft,
+    borderRadius: radius.pill,
+    height: 34,
+    justifyContent: "center",
+    width: 34
+  },
+  rewardSummaryLabel: {
+    color: colors.mutedInk,
+    fontSize: 11,
+    fontWeight: "800"
+  },
+  rewardSummaryPill: {
+    alignItems: "center",
+    backgroundColor: colors.white,
+    borderColor: colors.line,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    flex: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    minWidth: 150,
+    padding: spacing.md
+  },
+  rewardSummaryValue: {
+    color: colors.ink,
+    fontSize: type.body,
+    fontWeight: "900"
   },
   rewardTitle: {
     color: colors.ink,
