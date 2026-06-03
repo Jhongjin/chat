@@ -790,6 +790,13 @@ export function AppShell() {
       return;
     }
 
+    await Promise.all([
+      AsyncStorage.removeItem(blockedProfilesStorageKey),
+      AsyncStorage.removeItem(favoriteThreadsStorageKey),
+      AsyncStorage.removeItem(hiddenMessageIdsStorageKey),
+      AsyncStorage.removeItem(onboardingProfileStorageKey)
+    ]);
+
     setDeletionStatus("요청됨");
     setDiscoverable(false);
     setRemoteProfiles([]);
