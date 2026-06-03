@@ -17,7 +17,7 @@ import {
   TextInput,
   View
 } from "react-native";
-import { MascotMark } from "./components/MascotMark";
+import { MascotMark, type MascotMood } from "./components/MascotMark";
 import { initialThreads, nearbyProfiles, rewardPerks } from "./data/mock";
 import {
   acceptMessageRequest,
@@ -1493,7 +1493,7 @@ export function AppShell() {
       >
         <View style={styles.header}>
           <View style={styles.brandLockup}>
-            <MascotMark size="sm" />
+            <MascotMark mood="chat" size="sm" />
             <View>
               <Text style={styles.kicker}>DongneOn</Text>
               <Text style={styles.headerTitle}>가까운 사람과 안전하게</Text>
@@ -1788,6 +1788,7 @@ function DiscoverScreen({
         <EmptyState
           actionLabel="프로필 완성하기"
           icon="lock-closed"
+          mascotMood="safe"
           onAction={onOpenOnboarding}
           title="안전 프로필을 먼저 확인해요"
           body="만 18세 이상 확인과 기본 동의가 끝나면 가까운 친구를 볼 수 있어요."
@@ -1796,6 +1797,7 @@ function DiscoverScreen({
         <EmptyState
           actionLabel="위치 허용하기"
           icon="location"
+          mascotMood="location"
           onAction={onRefreshLocation}
           title="아직 동네를 확인하지 않았어요"
           body="정확한 주소는 보이지 않고, 5km 이내 추천에만 사용해요."
@@ -1804,6 +1806,7 @@ function DiscoverScreen({
         <EmptyState
           actionLabel="내 정보에서 해제"
           icon="pause-circle"
+          mascotMood="empty"
           onAction={onOpenProfile}
           title="내 동네 노출을 잠시 숨겼어요"
           body="숨김 시간이 끝나거나 내 정보에서 해제하면 다시 가까운 친구 추천에 참여합니다."
@@ -1812,6 +1815,7 @@ function DiscoverScreen({
         <EmptyState
           actionLabel="위치 다시 확인"
           icon="search"
+          mascotMood="empty"
           onAction={onRefreshLocation}
           title="아직 5km 안에 표시할 친구가 없어요"
           body="처음에는 지역 밀도를 천천히 채워가요. 위치를 다시 확인하거나 잠시 후 확인해 주세요."
@@ -1830,7 +1834,7 @@ function DiscoverScreen({
       )}
 
       <View style={styles.safetyBand}>
-        <Ionicons color={colors.lilac} name="shield-checkmark" size={22} />
+        <MascotMark mood="safe" size="xs" />
         <View style={styles.fill}>
           <Text style={styles.panelTitle}>먼저 안전하게 시작해요</Text>
           <Text style={styles.panelCaption}>
@@ -2303,6 +2307,7 @@ function ChatsScreen({
           <EmptyState
             actionLabel={__DEV__ ? "체험 대화 보기" : "프로필 확인"}
             icon="chatbubbles"
+            mascotMood="empty"
             onAction={__DEV__ ? onLoadDemoThreads : onOpenOnboarding}
             title="아직 열린 대화가 없어요"
             body={
@@ -2578,7 +2583,7 @@ function ProfileScreen({
       </View>
 
       <View style={styles.safetyBand}>
-        <Ionicons color={colors.teal} name="lock-closed" size={22} />
+        <MascotMark mood="safe" size="xs" />
         <View style={styles.fill}>
           <Text style={styles.panelTitle}>개인정보 최소 수집</Text>
           <Text style={styles.panelCaption}>
@@ -2646,7 +2651,7 @@ function OnboardingModal({
           <View style={styles.modalHandle} />
           <View style={styles.modalTitleRow}>
             <View style={styles.modalTitleCopy}>
-              <MascotMark size="sm" />
+              <MascotMark mood="location" size="sm" />
               <Text style={styles.kicker}>시작하기</Text>
               <Text style={styles.modalTitle}>필요한 정보만 받을게요</Text>
             </View>
@@ -2890,7 +2895,7 @@ function SafetyActionModal({
           {thread ? (
             <>
               <View style={styles.actionHeader}>
-                <MascotMark size="sm" />
+                <MascotMark mood="safe" size="sm" />
                 <View style={styles.fill}>
                   <Text style={styles.kicker}>안전 메뉴</Text>
                   <Text style={styles.actionTitle}>{thread.participant.name}님과의 대화</Text>
@@ -2961,7 +2966,7 @@ function MessageSafetyModal({
           {target ? (
             <>
               <View style={styles.actionHeader}>
-                <MascotMark size="sm" />
+                <MascotMark mood="safe" size="sm" />
                 <View style={styles.fill}>
                   <Text style={styles.kicker}>메시지 안전</Text>
                   <Text style={styles.actionTitle}>{target.thread.participant.name}님의 메시지</Text>
@@ -3041,7 +3046,7 @@ function PolicyNoticeModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =
       <View style={styles.centerModalBackdrop}>
         <View style={styles.actionSheet}>
           <View style={styles.actionHeader}>
-            <MascotMark size="sm" />
+            <MascotMark mood="safe" size="sm" />
             <View style={styles.fill}>
               <Text style={styles.kicker}>정책 안내</Text>
               <Text style={styles.actionTitle}>약관/개인정보/위치</Text>
@@ -3094,7 +3099,7 @@ function SafetySettingsModal({
       <View style={styles.centerModalBackdrop}>
         <View style={styles.actionSheet}>
           <View style={styles.actionHeader}>
-            <MascotMark size="sm" />
+            <MascotMark mood="safe" size="sm" />
             <View style={styles.fill}>
               <Text style={styles.kicker}>안전 설정</Text>
               <Text style={styles.actionTitle}>차단 목록</Text>
@@ -3213,18 +3218,20 @@ function EmptyState({
   actionLabel,
   body,
   icon,
+  mascotMood = "empty",
   onAction,
   title
 }: {
   actionLabel: string;
   body: string;
   icon: IconName;
+  mascotMood?: MascotMood;
   onAction: () => void;
   title: string;
 }) {
   return (
     <View style={styles.emptyState}>
-      <MascotMark size="lg" />
+      <MascotMark mood={mascotMood} size="lg" />
       <View style={styles.emptyIcon}>
         <Ionicons color={colors.teal} name={icon} size={21} />
       </View>
