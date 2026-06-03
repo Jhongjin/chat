@@ -105,6 +105,7 @@ export function AppShell() {
   const [threads, setThreads] = useState(initialThreads);
   const [selectedThreadId, setSelectedThreadId] = useState<string | undefined>(initialThreads[0]?.id);
   const [composerText, setComposerText] = useState("");
+  const [messageDrafts, setMessageDrafts] = useState<Record<string, string>>({});
   const [isOnboardingOpen, setOnboardingOpen] = useState(false);
   const [isOnboarded, setOnboarded] = useState(false);
   const [isLocating, setLocating] = useState(false);
@@ -229,6 +230,7 @@ export function AppShell() {
   );
 
   const selectedThread = threads.find((thread) => thread.id === selectedThreadId) ?? threads[0];
+  const activeThreadId = selectedThread?.id;
   const orderedThreads = useMemo(() => {
     const originalOrder = new Map(threads.map((thread, index) => [thread.id, index]));
 
@@ -241,6 +243,10 @@ export function AppShell() {
   const sentRequestCount = pendingRequests.filter((request) => request.direction === "sent").length;
   const totalMessageRequestAllowance = baseDailyMessageRequests + extraMessagePasses;
   const remainingMessageRequests = Math.max(0, totalMessageRequestAllowance - sentRequestCount);
+
+  useEffect(() => {
+    setComposerText(activeThreadId ? messageDrafts[activeThreadId] ?? "" : "");
+  }, [activeThreadId]);
 
   useEffect(() => {
     let active = true;
@@ -866,6 +872,8 @@ export function AppShell() {
     setThreads([]);
     setFavoriteThreadIds([]);
     setSelectedThreadId(undefined);
+    setComposerText("");
+    setMessageDrafts({});
     setOnboarded(false);
     setOnboardingOpen(false);
     setProfile((current) => ({
@@ -877,6 +885,52 @@ export function AppShell() {
     setActiveTab("profile");
     void trackEvent("account_deletion_requested");
     Alert.alert("삭제 요청 접수", "프로필 노출과 위치 추천을 중지했어요. 운영 보관 정책에 따라 삭제가 처리됩니다.");
+  }
+
+  function clearThreadDraft(threadId: string) {
+    setMessageDrafts((current) => {
+      if (!(threadId in current)) {
+        return current;
+      }
+
+      const next = { ...current };
+      delete next[threadId];
+      return next;
+    });
+  }
+
+  function handleSelectThread(threadId: string) {
+    setSelectedThreadId(threadId);
+    setComposerText(messageDrafts[threadId] ?? "");
+  }
+
+  function handleChangeComposerText(value: string) {
+    setComposerText(value);
+
+    if (!activeThreadId) {
+      return;
+    }
+
+    setMessageDrafts((current) => {
+      if (!value) {
+        if (!(activeThreadId in current)) {
+          return current;
+        }
+
+        const next = { ...current };
+        delete next[activeThreadId];
+        return next;
+      }
+
+      if (current[activeThreadId] === value) {
+        return current;
+      }
+
+      return {
+        ...current,
+        [activeThreadId]: value
+      };
+    });
   }
 
   async function handleSendMessage(thread: ChatThread) {
@@ -904,6 +958,7 @@ export function AppShell() {
 
       appendMessageToThread(thread.id, sent.data);
       setBackendNotice("Supabase 메시지 전송 완료");
+      clearThreadDraft(thread.id);
       setComposerText("");
       void trackEvent("message_sent", {
         bodyLength: text.length
@@ -917,6 +972,7 @@ export function AppShell() {
       body: text,
       createdAt: new Date().toISOString()
     });
+    clearThreadDraft(thread.id);
     setComposerText("");
     void trackEvent("message_sent", {
       bodyLength: text.length
@@ -942,6 +998,8 @@ export function AppShell() {
   function handleLoadDemoThreads() {
     setThreads(initialThreads);
     setSelectedThreadId(initialThreads[0]?.id);
+    setComposerText("");
+    setMessageDrafts({});
     setHiddenMessageIds([]);
     setBackendNotice("체험용 대화를 불러왔어요");
     setActiveTab("chats");
@@ -951,7 +1009,7 @@ export function AppShell() {
     const existingThread = threads.find((thread) => thread.participant.id === target.id);
 
     if (existingThread) {
-      setSelectedThreadId(existingThread.id);
+      handleSelectThread(existingThread.id);
       setActiveTab("chats");
       return;
     }
@@ -1052,7 +1110,7 @@ export function AppShell() {
 
       setBackendNotice("Supabase 대화방 생성 완료");
       await syncChatState();
-      setSelectedThreadId(accepted.data);
+      handleSelectThread(accepted.data);
       setActiveTab("chats");
       return;
     }
@@ -1076,6 +1134,7 @@ export function AppShell() {
     ]);
     setPendingRequests((current) => current.filter((item) => item.id !== request.id));
     setSelectedThreadId(threadId);
+    setComposerText("");
   }
 
   async function handleDeclineRequest(request: LocalMessageRequest) {
@@ -1102,6 +1161,8 @@ export function AppShell() {
   function handleHideThread(threadId: string) {
     setThreads((current) => current.filter((thread) => thread.id !== threadId));
     setFavoriteThreadIds((current) => current.filter((id) => id !== threadId));
+    clearThreadDraft(threadId);
+    setComposerText("");
     setSelectedThreadId(undefined);
     setSafetyThread(null);
   }
@@ -1130,6 +1191,8 @@ export function AppShell() {
     setThreads((current) => current.filter((item) => item.id !== thread.id));
     setFavoriteThreadIds((current) => current.filter((id) => id !== thread.id));
     setPendingRequests((current) => current.filter((request) => request.peer.id !== thread.participant.id));
+    clearThreadDraft(thread.id);
+    setComposerText("");
     setSelectedThreadId(undefined);
     setSafetyThread(null);
     void trackEvent("profile_blocked");
@@ -1473,12 +1536,12 @@ export function AppShell() {
             favoriteThreadIds={favoriteThreadIds}
             hiddenMessageIds={hiddenMessageIds}
             isBackendLoading={isBackendLoading}
-            onChangeComposerText={setComposerText}
+            onChangeComposerText={handleChangeComposerText}
             onAcceptRequest={handleAcceptRequest}
             onDeclineRequest={handleDeclineRequest}
             onLoadDemoThreads={handleLoadDemoThreads}
             onOpenMessageSafety={(thread, message) => setMessageSafetyTarget({ message, thread })}
-            onSelectThread={setSelectedThreadId}
+            onSelectThread={handleSelectThread}
             onSendMessage={handleSendMessage}
             onOpenSafety={setSafetyThread}
             onOpenOnboarding={() => setOnboardingOpen(true)}
