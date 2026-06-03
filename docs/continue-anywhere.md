@@ -12,6 +12,27 @@ DongneOn의 공통 기준점은 GitHub 브랜치, Supabase 클라우드 프로�
 - Supabase URL: `https://zmmukecvxhehaizwnhpz.supabase.co`
 - Node: `22.13.0`
 
+## 현재 진행 스냅샷
+
+2026-06-03 기준 `origin/codex/mobile-app-mvp`에는 다음 큐가 반영되어 있다.
+
+- 대화방별 입력 초안 분리, `작성 중` 배지, 전송/숨김/차단/계정 삭제 시 초안 정리
+- 캐릭터 `온이`의 `chat`, `location`, `empty`, `safe` 상태와 빈 상태/안전 모달 연결
+- Discover 카드 정보 밀도 축소, 첫 쪽지 CTA 분리, 쪽지권 소진 시 리워드 CTA 전환
+- 리워드 화면의 혜택 요약과 `1 크레딧 받기` 중심 문구
+- 개발 모드 위치 권한 차단 시 `체험 위치로 보기` 액션
+- 웹 shadow 경고 정리와 `dist-android/` export 산출물 ignore
+
+최근 검수:
+
+```bash
+npm run typecheck
+npx expo-doctor
+npx expo export --platform android --output-dir dist-android
+```
+
+브라우저 QA는 `http://localhost:19027/`에서 진행했고, 현재 포트 기준 콘솔 경고/오류 0개를 확인했다. 새 PC에서는 포트가 달라져도 괜찮으며, Expo가 안내하는 로컬 URL을 사용하면 된다.
+
 ## 새 PC에서 시작
 
 ```bash
