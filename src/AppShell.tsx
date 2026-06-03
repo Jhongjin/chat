@@ -93,6 +93,12 @@ const hiddenMessageIdsStorageKey = "dongneon.hiddenMessageIds";
 const onboardingProfileStorageKey = "dongneon.onboardingProfile";
 const quietHoursStorageKey = "dongneon.quietHoursEnabled";
 const quietHoursLabel = "23:00-08:00";
+const demoLocation: LocationDraft = {
+  accuracyM: 1200,
+  latitude: 37.5446,
+  longitude: 127.0557
+};
+const demoLocationLabel = "성수동 근처";
 
 type MessageSafetyTarget = {
   message: ChatMessage;
@@ -624,6 +630,18 @@ export function AppShell() {
     }
 
     setLocating(false);
+  }
+
+  function handleUseDemoLocation() {
+    setProfile((current) => ({
+      ...current,
+      locationLabel: demoLocationLabel,
+      permissionGranted: true
+    }));
+    setLastLocation(demoLocation);
+    setRemoteProfiles(null);
+    setBackendNotice("체험 위치로 가까운 친구를 보여드려요");
+    void trackEvent("demo_location_applied");
   }
 
   function handleChangeTab(tab: TabKey) {
@@ -1529,6 +1547,7 @@ export function AppShell() {
             onOpenProfile={() => setActiveTab("profile")}
             onStartMessage={handleStartMessage}
             onRefreshLocation={handleLocate}
+            onUseDemoLocation={handleUseDemoLocation}
             isLocating={isLocating}
           />
         ) : null}
@@ -1664,6 +1683,7 @@ function DiscoverScreen({
   onOpenProfile,
   onRefreshLocation,
   onStartMessage,
+  onUseDemoLocation,
   profiles,
   radiusKm,
   remainingMessageRequests,
@@ -1684,6 +1704,7 @@ function DiscoverScreen({
   onOpenProfile: () => void;
   onRefreshLocation: () => void;
   onStartMessage: (profile: NearbyProfile) => void;
+  onUseDemoLocation: () => void;
   profiles: NearbyProfile[];
   radiusKm: number;
   remainingMessageRequests: number;
@@ -1795,12 +1816,16 @@ function DiscoverScreen({
         />
       ) : !locationPermissionGranted ? (
         <EmptyState
-          actionLabel="위치 허용하기"
+          actionLabel={__DEV__ ? "체험 위치로 보기" : "위치 허용하기"}
           icon="location"
           mascotMood="location"
-          onAction={onRefreshLocation}
+          onAction={__DEV__ ? onUseDemoLocation : onRefreshLocation}
           title="아직 동네를 확인하지 않았어요"
-          body="정확한 주소는 보이지 않고, 5km 이내 추천에만 사용해요."
+          body={
+            __DEV__
+              ? "실기기 권한이 막혀도 체험 위치로 친구 카드와 첫 쪽지 흐름을 확인할 수 있어요."
+              : "정확한 주소는 보이지 않고, 5km 이내 추천에만 사용해요."
+          }
         />
       ) : isDiscoveryPaused ? (
         <EmptyState
