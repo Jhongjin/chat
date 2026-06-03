@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 import type { ComponentProps } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -1775,6 +1775,7 @@ function ChatsScreen({
   threads: ChatThread[];
 }) {
   const [chatSearchQuery, setChatSearchQuery] = useState("");
+  const messageScrollRef = useRef<ScrollView | null>(null);
   const hasThreads = threads.length > 0;
   const normalizedChatSearch = chatSearchQuery.trim().toLowerCase();
   const filteredThreads = useMemo(() => {
@@ -1819,6 +1820,18 @@ function ChatsScreen({
     ? selectedThread.messages.filter((message) => !hiddenMessageIds.includes(message.id))
     : [];
   const isConversationOpen = Boolean(selectedThread);
+
+  useEffect(() => {
+    if (!selectedThread) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      messageScrollRef.current?.scrollToEnd({ animated: false });
+    }, 80);
+
+    return () => clearTimeout(timer);
+  }, [selectedThread, visibleMessages.length]);
 
   return (
     <View style={styles.chatScreen}>
@@ -1998,6 +2011,8 @@ function ChatsScreen({
 
           <ScrollView
             contentContainerStyle={styles.messageList}
+            onContentSizeChange={() => messageScrollRef.current?.scrollToEnd({ animated: false })}
+            ref={messageScrollRef}
             showsVerticalScrollIndicator={false}
             style={styles.messageScroll}
           >
@@ -3759,6 +3774,8 @@ const styles = StyleSheet.create({
     width: 48
   },
   messageList: {
+    flexGrow: 1,
+    justifyContent: "flex-end",
     padding: spacing.lg
   },
   messageMetaText: {
