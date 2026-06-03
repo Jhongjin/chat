@@ -87,6 +87,7 @@ const interestFilters = ["전체", "카페", "산책", "러닝", "맛집", "책"
 const profileInterestOptions = interestFilters.filter((filter) => filter !== "전체");
 const baseDailyMessageRequests = 3;
 const blockedProfilesStorageKey = "dongneon.blockedProfiles";
+const discoveryPreferencesStorageKey = "dongneon.discoveryPreferences";
 const favoriteThreadsStorageKey = "dongneon.favoriteThreadIds";
 const hiddenMessageIdsStorageKey = "dongneon.hiddenMessageIds";
 const onboardingProfileStorageKey = "dongneon.onboardingProfile";
@@ -129,6 +130,7 @@ export function AppShell() {
   const [hiddenMessageIdsLoaded, setHiddenMessageIdsLoaded] = useState(false);
   const [quietHoursEnabled, setQuietHoursEnabled] = useState(true);
   const [quietHoursLoaded, setQuietHoursLoaded] = useState(false);
+  const [discoveryPreferencesLoaded, setDiscoveryPreferencesLoaded] = useState(false);
   const [storedProfileLoaded, setStoredProfileLoaded] = useState(false);
   const [messageRequestTarget, setMessageRequestTarget] = useState<NearbyProfile | null>(null);
   const [messageRequestText, setMessageRequestText] = useState("");
@@ -239,6 +241,62 @@ export function AppShell() {
   const sentRequestCount = pendingRequests.filter((request) => request.direction === "sent").length;
   const totalMessageRequestAllowance = baseDailyMessageRequests + extraMessagePasses;
   const remainingMessageRequests = Math.max(0, totalMessageRequestAllowance - sentRequestCount);
+
+  useEffect(() => {
+    let active = true;
+
+    void AsyncStorage.getItem(discoveryPreferencesStorageKey).then((value) => {
+      if (!active) {
+        return;
+      }
+
+      try {
+        const parsed = value ? JSON.parse(value) : null;
+        const storedPreferences = parseStoredDiscoveryPreferences(parsed);
+
+        if (storedPreferences) {
+          setRadiusKm(storedPreferences.radiusKm);
+          setSelectedInterest(storedPreferences.selectedInterest);
+          setSelectedInterests(storedPreferences.selectedInterests);
+          setDiscoverable(storedPreferences.isDiscoverable);
+          setDiscoveryPauseUntil(storedPreferences.discoveryPauseUntil);
+        }
+      } catch {
+        setSelectedInterest("전체");
+      } finally {
+        setDiscoveryPreferencesLoaded(true);
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!discoveryPreferencesLoaded || !isOnboarded) {
+      return;
+    }
+
+    void AsyncStorage.setItem(
+      discoveryPreferencesStorageKey,
+      JSON.stringify({
+        discoveryPauseUntil,
+        isDiscoverable,
+        radiusKm,
+        selectedInterest,
+        selectedInterests
+      })
+    );
+  }, [
+    discoveryPauseUntil,
+    discoveryPreferencesLoaded,
+    isDiscoverable,
+    isOnboarded,
+    radiusKm,
+    selectedInterest,
+    selectedInterests
+  ]);
 
   useEffect(() => {
     let active = true;
@@ -792,6 +850,7 @@ export function AppShell() {
 
     await Promise.all([
       AsyncStorage.removeItem(blockedProfilesStorageKey),
+      AsyncStorage.removeItem(discoveryPreferencesStorageKey),
       AsyncStorage.removeItem(favoriteThreadsStorageKey),
       AsyncStorage.removeItem(hiddenMessageIdsStorageKey),
       AsyncStorage.removeItem(onboardingProfileStorageKey)
@@ -3169,6 +3228,42 @@ function isCompleteOnboardingProfile(profileItem: OnboardingProfile) {
   const ageNumber = Number(profileItem.age);
 
   return Boolean(profileItem.name.trim()) && !Number.isNaN(ageNumber) && ageNumber >= 18 && profileItem.policyAccepted;
+}
+
+function parseStoredDiscoveryPreferences(value: unknown) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const item = value as {
+    discoveryPauseUntil?: unknown;
+    isDiscoverable?: unknown;
+    radiusKm?: unknown;
+    selectedInterest?: unknown;
+    selectedInterests?: unknown;
+  };
+  const selectedInterest = interestFilters.includes(item.selectedInterest as InterestFilter)
+    ? (item.selectedInterest as InterestFilter)
+    : "전체";
+  const selectedInterests = Array.isArray(item.selectedInterests)
+    ? item.selectedInterests.filter(
+        (interest): interest is string =>
+          typeof interest === "string" &&
+          profileInterestOptions.includes(interest as (typeof profileInterestOptions)[number])
+      )
+    : ["카페", "산책"];
+
+  if (typeof item.radiusKm !== "number" || typeof item.isDiscoverable !== "boolean") {
+    return null;
+  }
+
+  return {
+    discoveryPauseUntil: typeof item.discoveryPauseUntil === "string" ? item.discoveryPauseUntil : null,
+    isDiscoverable: item.isDiscoverable,
+    radiusKm: clampRadius(item.radiusKm),
+    selectedInterest,
+    selectedInterests: selectedInterests.length > 0 ? selectedInterests : ["카페", "산책"]
+  };
 }
 
 function isStoredNearbyProfile(value: unknown): value is NearbyProfile {
