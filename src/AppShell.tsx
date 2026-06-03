@@ -89,6 +89,7 @@ const baseDailyMessageRequests = 3;
 const blockedProfilesStorageKey = "dongneon.blockedProfiles";
 const favoriteThreadsStorageKey = "dongneon.favoriteThreadIds";
 const hiddenMessageIdsStorageKey = "dongneon.hiddenMessageIds";
+const onboardingProfileStorageKey = "dongneon.onboardingProfile";
 const quietHoursStorageKey = "dongneon.quietHoursEnabled";
 const quietHoursLabel = "23:00-08:00";
 
@@ -103,7 +104,7 @@ export function AppShell() {
   const [threads, setThreads] = useState(initialThreads);
   const [selectedThreadId, setSelectedThreadId] = useState<string | undefined>(initialThreads[0]?.id);
   const [composerText, setComposerText] = useState("");
-  const [isOnboardingOpen, setOnboardingOpen] = useState(true);
+  const [isOnboardingOpen, setOnboardingOpen] = useState(false);
   const [isOnboarded, setOnboarded] = useState(false);
   const [isLocating, setLocating] = useState(false);
   const [isBackendLoading, setBackendLoading] = useState(false);
@@ -128,6 +129,7 @@ export function AppShell() {
   const [hiddenMessageIdsLoaded, setHiddenMessageIdsLoaded] = useState(false);
   const [quietHoursEnabled, setQuietHoursEnabled] = useState(true);
   const [quietHoursLoaded, setQuietHoursLoaded] = useState(false);
+  const [storedProfileLoaded, setStoredProfileLoaded] = useState(false);
   const [messageRequestTarget, setMessageRequestTarget] = useState<NearbyProfile | null>(null);
   const [messageRequestText, setMessageRequestText] = useState("");
   const [isPolicyModalOpen, setPolicyModalOpen] = useState(false);
@@ -147,6 +149,49 @@ export function AppShell() {
     permissionGranted: false,
     policyAccepted: false
   });
+
+  useEffect(() => {
+    let active = true;
+
+    void AsyncStorage.getItem(onboardingProfileStorageKey).then((value) => {
+      if (!active) {
+        return;
+      }
+
+      let shouldOpenOnboarding = true;
+
+      try {
+        const parsed = value ? JSON.parse(value) : null;
+        const storedProfile = parseStoredOnboardingProfile(parsed);
+
+        if (storedProfile && isCompleteOnboardingProfile(storedProfile)) {
+          setProfile(storedProfile);
+          setOnboarded(true);
+          setOnboardingOpen(false);
+          shouldOpenOnboarding = false;
+        }
+      } catch {
+        shouldOpenOnboarding = true;
+      } finally {
+        if (shouldOpenOnboarding) {
+          setOnboardingOpen(true);
+        }
+        setStoredProfileLoaded(true);
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!storedProfileLoaded || !isOnboarded) {
+      return;
+    }
+
+    void AsyncStorage.setItem(onboardingProfileStorageKey, JSON.stringify(profile));
+  }, [isOnboarded, profile, storedProfileLoaded]);
 
   const visibleProfiles = useMemo(
     () => {
@@ -3058,6 +3103,41 @@ function Avatar({ color, label, size = 48 }: { color: string; label: string; siz
 
 function isUuid(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function parseStoredOnboardingProfile(value: unknown): OnboardingProfile | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const profileItem = value as Partial<OnboardingProfile> & { age?: number | string };
+
+  if (
+    typeof profileItem.name !== "string" ||
+    (typeof profileItem.age !== "string" && typeof profileItem.age !== "number") ||
+    typeof profileItem.gender !== "string" ||
+    !genderOptions.some((option) => option.value === profileItem.gender) ||
+    typeof profileItem.locationLabel !== "string" ||
+    typeof profileItem.permissionGranted !== "boolean" ||
+    typeof profileItem.policyAccepted !== "boolean"
+  ) {
+    return null;
+  }
+
+  return {
+    age: String(profileItem.age),
+    gender: profileItem.gender,
+    locationLabel: profileItem.locationLabel,
+    name: profileItem.name,
+    permissionGranted: profileItem.permissionGranted,
+    policyAccepted: profileItem.policyAccepted
+  };
+}
+
+function isCompleteOnboardingProfile(profileItem: OnboardingProfile) {
+  const ageNumber = Number(profileItem.age);
+
+  return Boolean(profileItem.name.trim()) && !Number.isNaN(ageNumber) && ageNumber >= 18 && profileItem.policyAccepted;
 }
 
 function isStoredNearbyProfile(value: unknown): value is NearbyProfile {
