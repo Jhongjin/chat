@@ -37,6 +37,7 @@ Expo SDK 56 기반입니다. SDK 56의 최소 Node.js 기준은 22.13.x 계열�
 ```bash
 npm run typecheck
 npx expo-doctor
+npm run check
 ```
 
 GitHub Actions는 `main`과 `codex/**` 브랜치 push, pull request에서 위 검증을 자동 실행합니다.
@@ -66,6 +67,7 @@ EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID=
 - [UI/UX 디자인 점검 결과](./docs/design-qa.md)
 - [채팅 경험 고도화 로드맵](./docs/chat-experience-roadmap.md)
 - [모바일 빌드 준비](./docs/mobile-build.md)
+- [어디서든 이어가기](./docs/continue-anywhere.md)
 - [푸시 알림 워커](./docs/notification-worker.md)
 - [신고 검수 운영](./docs/moderation-operations.md)
 - [AdMob SSV 리워드 검증](./docs/admob-ssv.md)

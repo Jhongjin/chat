@@ -1,0 +1,29 @@
+{
+  "name": "DongneOn Mobile",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:22-bookworm",
+  "forwardPorts": [8081, 8089, 19000, 19006],
+  "portsAttributes": {
+    "8081": {
+      "label": "Expo Metro"
+    },
+    "8089": {
+      "label": "Native Metro"
+    },
+    "19000": {
+      "label": "Expo"
+    },
+    "19006": {
+      "label": "Expo Web"
+    }
+  },
+  "postCreateCommand": "npm ci",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "expo.vscode-expo-tools"
+      ]
+    }
+  }
+}
